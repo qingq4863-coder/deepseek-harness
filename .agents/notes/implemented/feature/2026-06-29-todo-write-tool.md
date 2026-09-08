@@ -26,7 +26,7 @@ The list is appended as a `todo/write` event carrying the full `{ todos }` snaps
 
 ### Dropped vs claude-code V1: `activeForm`, id, priority
 
-claude-code V1's item is `{ content, status, activeForm }`; later (V2) it grew ids, dependencies, and ownership — but only to support agent *swarms* (disk-backed, lock-guarded, per-item mutation). This tool keeps the item at the minimum: `{ content, status }`. No `activeForm` (the present-continuous label) — the UI shows `content`; no id — whole-list replace needs no stable identity; no priority — that was only ever an ACP `PlanEntry` wire requirement, synthesized as a constant at the bridge boundary rather than modeled, and it left with that projection. Each dropped field is one less thing the model must produce on every call.
+claude-code V1's item is `{ content, status, activeForm }`; later (V2) it grew ids, dependencies, and ownership — but only to support agent *swarms* (disk-backed, lock-guarded, per-item mutation). This tool keeps the item near the minimum: `{ content, status }`, later extended with the one optional [evidence](2026-09-05-todo-evidence.md) line. No `activeForm` (the present-continuous label) — the UI shows `content`; no id — whole-list replace needs no stable identity; no priority — that was only ever an ACP `PlanEntry` wire requirement, synthesized as a constant at the bridge boundary rather than modeled, and it left with that projection. Each dropped field is one less thing the model must produce on every call.
 
 ### Single owner — no swarm machinery (YAGNI)
 

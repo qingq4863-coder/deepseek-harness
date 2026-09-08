@@ -48,6 +48,7 @@ kind: "package-reference"
 |---|---|---|
 | `presets` | `workspace-write`、`danger-full-access` | 预设名称 → 沙箱／审批捆绑的表 |
 | `defaultPreset` | 推断 | 固定到新会话的预设；组合默认值不匹配任何预设时必填 |
+| `presets[].capabilityRisk` | 未设置 | 预设执行的工具 `risk` 的可选最大值；超过上限的已声明工具和没有能力元数据的工具会被拒绝 |
 
 生成的[配置目录](../../../docs/config-catalog.zh.md#deepseek-aidsh-permission-presets)是每个受支持字段及其 JSDoc 的穷尽式真源。`custom` 这个名称保留给推导出的非预设状态，不能作为表条目。挂载需要具有约束能力的 bash 执行器（会报告 `sandboxMode` 的执行器）与审批服务。
 
@@ -129,8 +130,9 @@ kind: "package-reference"
 
 这些限制说明预设服务不提供什么。它们是当前包约束，不是权限系统对比。
 
-- **只组合两个机制级旋钮**：预设选择沙箱模式和审批策略；agent（智能体）／profile 选择尚未纳入 `PresetSpec`。
-- **`custom` 只能推导得出**：调用方可以从不匹配的旋钮组合切换出去，但无法通过此服务选中或持久化一个名为 custom 的预设。
+- **只组合两个机制级旋钮**：预设选择沙箱模式和审批策略（以及可选的声明式 `capabilityRisk` 上限）；agent（智能体）／profile 选择尚未纳入 `PresetSpec`。
+- **能力上限仅比较已声明的元数据**：元数据低报实际行为的工具仍会通过检查；该上限是针对已声明能力的预设级策略，不是沙箱。
+- **`custom` 只能推导得出**：调用方可以从不匹配的旋钮组合切换出去，但无法通过此服务选中或持久化一个名为 custom 预设。
 - **预设表是进程级配置**：配置在插件生命周期内固定；更改可用预设必须重新加载插件。
 - **已存储的默认值必须保留在 preset 表中**：移除被引用的 preset 会导致权限设置注册失败，直到更新或重置 `settings.yaml` 中的 `permission` 分节。
 

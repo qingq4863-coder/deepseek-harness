@@ -9,7 +9,7 @@ kind: "package-reference"
 
 ## 概述
 
-`dsh-tool-todo` 为 agent 提供一份可用于规划的结构化任务列表：把多步工作拆成具体任务、标记正在进行的任务、完成后逐项勾掉。列表跨轮次、跨重新打开的会话持续存在，agent 与 UI 始终看到最新计划。一个配置开关决定是否允许多个任务同时处于进行中，适用于并行开展工作的 agent。凡是希望 agent 维护可见任务列表的场景都可以使用它；每次更新整体替换列表，只有拥有该列表的 agent 会话才能修改。
+`dsh-tool-todo` 为 agent 提供一份可用于规划的结构化任务列表：把多步工作拆成具体任务、标记正在进行的任务、完成后逐项勾掉。列表跨轮次、跨重新打开的会话持续存在，agent 与 UI 始终看到最新计划。两个配置开关分别决定是否允许多个任务同时处于进行中、以及已完成的任务是否必须携带其证明，适用于并行开展工作的 agent 或需要完成证据纪律的部署。凡是希望 agent 维护可见任务列表的场景都可以使用它；每次更新整体替换列表，只有拥有该列表的 agent 会话才能修改。
 
 ## 目录
 
@@ -33,23 +33,25 @@ kind: "package-reference"
 
 ### 最小配置
 
-`allowParallelInProgress` 是必填项、没有默认值：省略它的组合会在加载时失败，非布尔值也会被拒绝。可能并发运行工作的 agent（subagent、后台命令、workflow 扇出）设为 `true`，需要单活跃项纪律的设为 `false`。
+`allowParallelInProgress` 与 `requireCompletedEvidence` 都是必填项、没有默认值：省略任一字段的组合会在加载时失败，非布尔值也会被拒绝。可能并发运行工作的 agent（subagent、后台命令、workflow 扇出）把 `allowParallelInProgress` 设为 `true`，需要单活跃项纪律的设为 `false`。把 `requireCompletedEvidence` 设为 `true` 即启用证据门禁——描述会要求证明行，没有证据的完成项会被拒绝；设为 `false` 则保留邀请、不设门禁。
 
 ```yaml
 - name: '@deepseek-ai/dsh-tool-todo'
   config:
     allowParallelInProgress: true
+    requireCompletedEvidence: false
 ```
 
 | 字段 | 默认值 | 含义 |
 |---|---|---|
 | `allowParallelInProgress` | 必填 | 是否允许多个 todo 同时处于 `in_progress`；同时选择模型描述中的活跃状态条款 |
+| `requireCompletedEvidence` | 必填 | 已完成的 todo 是否必须携带 `evidence`；同时选择模型描述中的证据条款 |
 
 生成的[配置目录](../../../docs/config-catalog.zh.md#deepseek-aidsh-tool-todo)是每个受支持字段的穷尽式真源。
 
 ### 每次调用做什么
 
-agent 每次更新都发送完整列表；新列表替换旧列表，因此没有部分更新或逐项编辑。每个条目是一句简短的任务描述，外加 `pending`、`in_progress` 或 `completed` 状态。成功的更新会返回新的计数——`Updated todo list: <pending> pending, <inProgress> in progress, <completed> completed.`——UI 随即展示新计划。任务描述为空或重复、条目带有描述与状态之外的字段、或（禁用并行时）多个任务被标记为进行中，这些情况下更新都会明确失败。
+agent 每次更新都发送完整列表；新列表替换旧列表，因此没有部分更新或逐项编辑。每个条目是一句简短的任务描述，外加 `pending`、`in_progress` 或 `completed` 状态；已完成的条目可以携带一行 `evidence`，指明通过的检查或证明它的产物，非完成条目上的 evidence 会被拒绝，部署要求证据时——没有证据的完成项同样会被拒绝。成功的更新会返回新的计数——`Updated todo list: <pending> pending, <inProgress> in progress, <completed> completed.`——UI 随即展示新计划。任务描述为空或重复、条目带有描述与状态之外的字段、或（禁用并行时）多个任务被标记为进行中，这些情况下更新都会明确失败。
 
 ### 单一所有者
 
@@ -71,7 +73,7 @@ agent 每次更新都发送完整列表；新列表替换旧列表，因此没�
 
 - **整表替换、日志承载状态。** 模型重新发送整个列表；`todo/write` 快照存放在事件溯源的会话日志上，持久性、回放与恢复重建都来自日志而非服务。
 - **单一所有者。** 列表属于调用 agent 会话；不存在共享或 swarm 作用域，非 agent 调用方会被拒绝。
-- **部署策略，而非编码规则。** `allowParallelInProgress` 是必填组合选择，因为工具无法观测运行时并发；持久日志不变式刻意不跟随它，因此一种策略下写入的日志在部署收紧另一种策略后仍可回放。
+- **部署策略，而非编码规则。** `allowParallelInProgress` 与 `requireCompletedEvidence` 都是必填组合选择，因为工具无法观测运行时并发、也无法观测部署的证据纪律；持久日志不变式刻意不约束活跃计数与 status-evidence 关联，因此一种策略下写入的日志在部署收紧另一种策略后仍可回放。
 - **校验让落库快照保持诚实。** schema 层拒绝未知键、`execute` 层拒绝空或重复 content，使持久快照与模型自认为写入的内容一致。
 
 [todo_write 工具 Agent Note](../../../.agents/notes/implemented/feature/2026-06-29-todo-write-tool.zh.md) 记录原始设计与备选方案；[并行 in-progress Agent Note](../../../.agents/notes/implemented/feature/2026-07-26-todo-parallel-in-progress.zh.md) 记录该策略决策。
@@ -95,7 +97,7 @@ agent 每次更新都发送完整列表；新列表替换旧列表，因此没�
 
 ### 持久日志不变式
 
-不变式伴生插件注册到 `ctx.invariants`，先分别校验既有会话与新公布会话一次，再为实时追加推进按会话提交的轮次轨迹。它会拒绝畸形条目、空或重复 content、未知状态，以及开放轮次之外的持久 `todo/write`；核心 session 通用处理声明合并事件，而本生产包拥有 todo 专用规则。它刻意不约束有多少条目处于 `in_progress`，因为那是工具按部署制定的策略，而非持久数据规则（见[事件归属](../../../.agents/notes/implemented/architecture/2026-07-20-todo-event-ownership.zh.md)）。
+不变式伴生插件注册到 `ctx.invariants`，先分别校验既有会话与新公布会话一次，再为实时追加推进按会话提交的轮次轨迹。它会拒绝畸形条目、空或重复 content、未知状态、格式错误的 evidence 行，以及开放轮次之外的持久 `todo/write`；核心 session 通用处理声明合并事件，而本生产包拥有 todo 专用规则。它刻意不约束有多少条目处于 `in_progress`、也不约束完成项是否携带 evidence，因为那些是工具按部署制定的策略，而非持久数据规则（见[事件归属](../../../.agents/notes/implemented/architecture/2026-07-20-todo-event-ownership.zh.md)）。
 
 ### 调用机制
 
@@ -116,6 +118,7 @@ agent 每次更新都发送完整列表；新列表替换旧列表，因此没�
 - [生成的配置目录](../../../docs/config-catalog.zh.md#deepseek-aidsh-tool-todo)——每个受支持配置字段及其源声明。
 - [todo_write 工具 Agent Note](../../../.agents/notes/implemented/feature/2026-06-29-todo-write-tool.zh.md)——原始设计、备选方案与砍掉的字段。
 - [并行 in-progress Agent Note](../../../.agents/notes/implemented/feature/2026-07-26-todo-parallel-in-progress.zh.md)——为何活跃计数上限成为部署策略。
+- [todo 证据 Agent Note](../../../.agents/notes/implemented/feature/2026-09-05-todo-evidence.zh.md)——完成证据行与其强制执行开关。
 - [todo 计划在下一轮次清空 Agent Note](../../../.agents/notes/implemented/feature/2026-07-28-todo-plan-clears-on-next-turn.zh.md)——投影的有效计划生命周期。
 
 -----
@@ -127,7 +130,7 @@ agent 每次更新都发送完整列表；新列表替换旧列表，因此没�
 
 #### 模型看到什么
 
-模型会看到生成的 [`todo_write` schema](../../../docs/tool-catalog.zh.md#deepseek-aidsh-tool-todo)：一个对象，含一个必填的 `todos` 数组，元素为 `{ content, status }`，其中 `status` 为 `pending`、`in_progress` 或 `completed`。描述是组合后的整表指令，其活跃状态条款跟随 `allowParallelInProgress`。
+模型会看到生成的 [`todo_write` schema](../../../docs/tool-catalog.zh.md#deepseek-aidsh-tool-todo)：一个对象，含一个必填的 `todos` 数组，元素为 `{ content, status, evidence? }`，其中 `status` 为 `pending`、`in_progress` 或 `completed`，`evidence` 是一行的完成证明。描述是组合后的整表指令，其活跃状态条款跟随 `allowParallelInProgress`，证据条款跟随 `requireCompletedEvidence`。
 
 #### Token 影响
 
@@ -141,7 +144,7 @@ agent 每次更新都发送完整列表；新列表替换旧列表，因此没�
 
 #### 模型看到什么
 
-每次 assistant 工具调用都会在参数中保留整个替换列表。成功时原样返回 `Updated todo list: <pending> pending, <inProgress> in progress, <completed> completed.`。稳定失败文本为 ``Error: invalid todo: `content` must be a non-empty string``、`Error: invalid todos: duplicate content "<content>"`、`Error: todo_write requires an owning agent session`，以及——仅在部署设置 `allowParallelInProgress: false` 时——`Error: invalid todos: at most one task may be in_progress (got <n>)`。完整的 `todo/write` 会话事件是 UI 与回放状态，而非第二条模型消息。
+每次 assistant 工具调用都会在参数中保留整个替换列表。成功时原样返回 `Updated todo list: <pending> pending, <inProgress> in progress, <completed> completed.`。稳定失败文本为 ``Error: invalid todo: `content` must be a non-empty string``、`Error: invalid todos: duplicate content "<content>"`、`Error: invalid todo: `evidence` must be a non-empty string when present`、`Error: invalid todo: `evidence` is only valid on completed items`、`Error: todo_write requires an owning agent session`，以及——仅在部署设置 `allowParallelInProgress: false` 时——`Error: invalid todos: at most one task may be in_progress (got <n>)`，以及——仅在部署设置 `requireCompletedEvidence: true` 时——`Error: invalid todo: a `completed` task must carry `evidence` naming the check that proved it`。完整的 `todo/write` 会话事件是 UI 与回放状态，而非第二条模型消息。
 
 #### Token 影响
 
@@ -159,7 +162,8 @@ token 用量随模型每次提交的完整列表增长，这些调用参数会�
 这些限制说明工具何时不合适。它们是当前包约束，不是任务积压。
 
 - **仅单一所有者作用域**——列表属于唯一调用 agent 会话；subagent、共享与 swarm 作用域是有意砍掉的部分，非 agent 调用方会被拒绝。
-- **条目形状刻意保持最小**——`content` 加三态 `status`；整表替换不需要稳定 id、优先级或 active-form 字段。
+- **条目形状刻意保持最小**——`content`、三态 `status`，外加一行可选 `evidence`；整表替换不需要稳定 id、优先级或 active-form 字段。
+- **证据纪律是按部署的选择**——`requireCompletedEvidence: true` 拒绝没有证明行的完成项；`false` 只邀请不强制。无论哪种取值，不变式都不会拒绝在另一策略下写入的历史。
 - **整表替换是唯一操作**——没有部分更新、没有回读工具、没有逐项编辑；模型每次调用都必须重新发送完整列表。
 
 <a id="dev-note"></a>

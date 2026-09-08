@@ -29,34 +29,52 @@ const STATUSES = ['pending', 'in_progress', 'completed'] as const
 export interface Config {
   /**
    * Required deployment choice for whether several todos may be `in_progress` at once. True suits
-   * agents that run work concurrently — subagents, background commands, workflow fan-out — and the
+   * agents that run work concurrently 閳?subagents, background commands, workflow fan-out 閳?and the
    * description then instructs the model to mark every actively worked task. False restores the
    * single-active discipline: the description asks for exactly one, and a call marking more is
    * rejected.
    */
   allowParallelInProgress: boolean
+  /**
+   * Required deployment choice for whether a `completed` todo must carry `evidence`. True turns the
+   * evidence invitation into a gate: the description demands it and a completed item without one is
+   * rejected. False keeps the invitation 閳?the description still asks for evidence, the tool just
+   * does not require it.
+   */
+  requireCompletedEvidence: boolean
 }
 
 /** Schemastery configuration for the todo tool consumer. */
 export const Config: z<Config> = z.object({
   allowParallelInProgress: z.boolean().required(),
+  requireCompletedEvidence: z.boolean().required(),
 })
 
 const DESCRIPTION_HEAD =
   'Record and update a structured task list for the current work. Send the ENTIRE '
-  + 'list every call — it REPLACES the previous list (there are no partial updates, '
+  + 'list every call 閳?it REPLACES the previous list (there are no partial updates, '
   + 'no per-item edits). Use it to plan multi-step work and show progress: add one '
   + 'todo per concrete step before you start. '
 
 const DESCRIPTION_PARALLEL =
   'Mark every todo being actively worked '
-  + 'on `in_progress` — several at once when work genuinely runs in parallel (e.g. '
+  + 'on `in_progress` 閳?several at once when work genuinely runs in parallel (e.g. '
   + 'concurrent subagents or background commands), one for sequential work; while '
   + 'work remains, at least one task should be `in_progress`. '
 
 const DESCRIPTION_SINGLE =
   'Keep AT MOST ONE todo `in_progress` at a '
   + 'time; while work remains, exactly one active task should be `in_progress`. '
+
+const DESCRIPTION_EVIDENCE_INVITE =
+  'When you mark a todo `completed`, attach `evidence` 閳?one line naming the '
+  + 'check that passed or the artifact that proves it; `evidence` is only valid '
+  + 'on `completed` items. '
+
+const DESCRIPTION_EVIDENCE_REQUIRED =
+  'A `completed` todo MUST carry `evidence` 閳?one line naming the check that '
+  + 'passed or the artifact that proves it 閳?or the call is rejected; '
+  + '`evidence` is only valid on `completed` items. '
 
 const DESCRIPTION_TAIL =
   'Mark a todo '
@@ -66,29 +84,38 @@ const DESCRIPTION_TAIL =
   + 'worked on now), `completed` (finished).'
 
 /**
- * The model-facing description for one activation. The active-status clause is the only part that
- * varies, because it is the only instruction the parallel policy changes.
+ * The model-facing description for one activation. Each policy knob varies one clause: the
+ * active-status clause follows the parallel policy, the evidence clause follows the evidence
+ * policy.
  * @param allowParallel - whether several todos may be `in_progress` at once.
+ * @param requireCompleted - whether a `completed` todo must carry `evidence`.
  * @returns the composed tool description.
  */
-function describe(allowParallel: boolean): string {
+function describe(allowParallel: boolean, requireCompleted: boolean): string {
   return DESCRIPTION_HEAD
     + (allowParallel ? DESCRIPTION_PARALLEL : DESCRIPTION_SINGLE)
+    + (requireCompleted ? DESCRIPTION_EVIDENCE_REQUIRED : DESCRIPTION_EVIDENCE_INVITE)
     + DESCRIPTION_TAIL
 }
 
 /**
  * Validate the value constraints the ParameterSchemaSpec can't express and build the canonical {@link
- * TodoItem}[]: trimmed non-empty unique content, and at most one `in_progress` item unless the
- * deployment allows parallel work. The registry has already enforced the status enum and rejected
- * unknown item keys (`additionalProperties: false` — the logged snapshot must equal what the model
+ * TodoItem}[]: trimmed non-empty unique content, trimmed non-empty `evidence` on `completed` items
+ * only, and at most one `in_progress` item unless the deployment allows parallel work. The
+ * registry has already enforced the status enum and rejected
+ * unknown item keys (`additionalProperties: false` 閳?the logged snapshot must equal what the model
  * believes it wrote, so a nested/extended item shape fails loud at the schema boundary instead of
  * silently flattening); the cast below records that guarantee.
  * @param raw - the model-supplied list, already schema-checked.
  * @param allowParallel - whether several items may be `in_progress` at once.
+ * @param requireCompleted - whether a `completed` item must carry `evidence`.
  * @returns the canonical list.
  */
-function toTodoList(raw: { content: string; status: string }[], allowParallel: boolean): TodoItem[] {
+function toTodoList(
+  raw: { content: string; status: string; evidence?: string }[],
+  allowParallel: boolean,
+  requireCompleted: boolean,
+): TodoItem[] {
   const todos: TodoItem[] = []
   const seen = new Set<string>()
   let active = 0
@@ -102,7 +129,22 @@ function toTodoList(raw: { content: string; status: string }[], allowParallel: b
     }
     seen.add(content)
     if (item.status === 'in_progress') active++
-    todos.push({ content, status: item.status as TodoItem['status'] })
+    let evidence: string | undefined
+    if (item.evidence !== undefined) {
+      evidence = item.evidence.trim()
+      if (evidence.length === 0) {
+        throw new Error('invalid todo: `evidence` must be a non-empty string when present')
+      }
+      if (item.status !== 'completed') {
+        throw new Error('invalid todo: `evidence` is only valid on completed items')
+      }
+    }
+    if (item.status === 'completed' && requireCompleted && evidence === undefined) {
+      throw new Error('invalid todo: a `completed` task must carry `evidence` naming the check that proved it')
+    }
+    todos.push(evidence === undefined
+      ? { content, status: item.status as TodoItem['status'] }
+      : { content, status: item.status as TodoItem['status'], evidence })
   }
   if (!allowParallel && active > 1) {
     throw new Error(`invalid todos: at most one task may be in_progress (got ${active})`)
@@ -111,13 +153,18 @@ function toTodoList(raw: { content: string; status: string }[], allowParallel: b
 }
 
 /** Wire payload schema of the `todos` projection (whole list or pre-first-write null). */
-const todosProjectionSchema: ZodType<TodoItem[] | null> = zod.union([
+// Record-type cast: zod's `.optional()` output type carries `| undefined`,
+// which exactOptionalPropertyTypes rejects against TodoItem's exact-optional
+// `evidence?`; the runtime contract 閳?absent, or a string 閳?is what this
+// schema enforces and what the tool guarantees on write.
+const todosProjectionSchema = zod.union([
   zod.array(zod.object({
     content: zod.string(),
     status: zod.union([zod.literal('pending'), zod.literal('in_progress'), zod.literal('completed')]),
+    evidence: zod.string().optional(),
   })),
   zod.null(),
-])
+]) as ZodType<TodoItem[] | null>
 
 /**
  * Register the `todo_write` tool on `ctx.tools` and the `todos` unit on
@@ -127,6 +174,7 @@ const todosProjectionSchema: ZodType<TodoItem[] | null> = zod.union([
  */
 export function apply(ctx: Context, config: Config): void {
   const allowParallel = config.allowParallelInProgress
+  const requireCompleted = config.requireCompletedEvidence
   // Standing-plan fold: latest whole todo/write list, cleared by the next
   // turn/start (turn/end keeps the finished checklist visible); null before the
   // first write or after a later turn begins; every other event returns the
@@ -141,11 +189,11 @@ export function apply(ctx: Context, config: Config): void {
       return state
     },
     wire: { viewSchema: todosProjectionSchema, view: state => state },
-    stateVersion: 2,
+    stateVersion: 3,
   })
   ctx.tools.register(defineTool({
     name: 'todo_write',
-    description: describe(allowParallel),
+    description: describe(allowParallel, requireCompleted),
     parameters: {
       todos: {
         type: 'array',
@@ -155,12 +203,16 @@ export function apply(ctx: Context, config: Config): void {
           type: 'object',
           additionalProperties: false,
           properties: {
-            content: { type: 'string', required: true, description: 'What the task is — a short imperative line.' },
+            content: { type: 'string', required: true, description: 'What the task is 閳?a short imperative line.' },
             status: {
               type: 'string',
               required: true,
               enum: [...STATUSES],
               description: 'pending (not started) | in_progress (now) | completed (done).',
+            },
+            evidence: {
+              type: 'string',
+              description: 'One-line proof a completed task is done 閳?the check that passed or the artifact.',
             },
           },
         },
@@ -180,6 +232,7 @@ export function apply(ctx: Context, config: Config): void {
               properties: {
                 content: { type: 'string', required: true },
                 status: { type: 'string', required: true, enum: [...STATUSES] },
+                evidence: { type: 'string' },
               },
             },
           },
@@ -201,7 +254,7 @@ export function apply(ctx: Context, config: Config): void {
       }],
     },
     execute(args, exec) {
-      const todos = toTodoList(args.todos, allowParallel)
+      const todos = toTodoList(args.todos, allowParallel, requireCompleted)
       if (!exec.agent) {
         // The list is per-agent-session state; a non-agent caller (no owning
         // session) has nowhere to write it. Reject rather than silently no-op.
@@ -210,7 +263,7 @@ export function apply(ctx: Context, config: Config): void {
       exec.agent.session.append('todo/write', { todos })
       const count = (status: TodoItem['status']): number => todos.filter(t => t.status === status).length
       return Promise.resolve({
-        todos: todos.map(todo => ({ content: todo.content, status: todo.status })),
+        todos,
         counts: {
           pending: count('pending'),
           inProgress: count('in_progress'),

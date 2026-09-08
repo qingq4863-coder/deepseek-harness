@@ -19,6 +19,10 @@ import { SANDBOX_MODES, setSandboxMode } from '@deepseek-ai/dsh-sandbox-policy'
 // Side-effect type import: declaration-merges `ctx.shell` (the capability fact
 // `sandboxMode` this service reads), without a value dependency on the seam.
 import type {} from '@deepseek-ai/dsh-shell'
+// Side-effect type import: declaration-merges `ctx.tools` so the monotonic
+// capability-ceiling guard registers on the tools runtime without a value
+// dependency on it.
+import type {} from '@deepseek-ai/dsh-tools'
 import type { ApprovalPolicy } from '@deepseek-ai/dsh-user-approval'
 import { APPROVAL_POLICIES, setApprovalPolicy } from '@deepseek-ai/dsh-user-approval'
 import type {} from '@deepseek-ai/dsh-settings'
@@ -54,12 +58,25 @@ declare module '@deepseek-ai/dsh-session/types' {
   }
 }
 
+/**
+ * The closed tool risk vocabulary a preset ceiling compares, mirroring the
+ * `capability.risk` values of `@deepseek-ai/dsh-tools`.
+ */
+export type CapabilityRisk = 'low' | 'medium' | 'high' | 'prohibited'
+
 /** One preset's sandbox/approval bundle and optional client presentation. */
 export interface PresetSpec {
   /** The `sandbox/mode` value the preset writes through. */
   sandbox: SandboxMode
   /** The `approval/policy` value the preset writes through. */
   approval: ApprovalPolicy
+  /**
+   * Optional maximum tool `risk` this preset executes: declared tools at or
+   * below the ceiling run, tools above it are denied, and tools without
+   * capability metadata are denied while a ceiling is set. Unset presets
+   * impose no ceiling.
+   */
+  capabilityRisk?: CapabilityRisk
   /** The display label a client shows for this preset; the raw table key when omitted. */
   name?: string
   /** One user-facing sentence on what the preset means; omitted when not configured. */
@@ -74,6 +91,9 @@ export const CUSTOM_PRESET = 'custom'
 
 /** Settings namespace carrying the default for future sessions. */
 export const PERMISSION_SETTINGS_NAMESPACE = 'permission'
+
+/** Risk rank order the capability ceiling compares; the higher rank denies. */
+const CAPABILITY_RISK_RANK: Record<CapabilityRisk, number> = { low: 0, medium: 1, high: 2, prohibited: 3 }
 
 /**
  * The projection unit's knob state: the last seen value of each knob event,
@@ -110,7 +130,7 @@ const EMPTY_KNOBS: KnobState = { preset: null, sandbox: null, approval: null }
 
 /**
  * One-event permission-state transition (the projection unit's `apply`). Unrelated
- * events return the same reference — the registry's change gate.
+ * events return the same reference 閳?the registry's change gate.
  * @param state - the folded knob state before `event`.
  * @param event - one committed session event.
  * @returns the next state; the same reference when the event is unrelated.
@@ -142,7 +162,7 @@ export interface PermissionSettings {
 /** The {@link PermissionPresetService} config: preset table and composition default. */
 export interface Config {
   /**
-   * The preset table: name → knob bundle. Defaults to `workspace-write`
+   * The preset table: name 閳?knob bundle. Defaults to `workspace-write`
    * (workspace-write + ask) and `danger-full-access` (danger-full-access +
    * never). The name `custom` is reserved for the derived not-a-preset state.
    */
@@ -165,6 +185,7 @@ export class PermissionPresetService extends Service {
     presets: z.dict(z.object({
       sandbox: z.union(SANDBOX_MODES as SandboxMode[]).required(),
       approval: z.union(APPROVAL_POLICIES as ApprovalPolicy[]).required(),
+      capabilityRisk: z.union(['low', 'medium', 'high', 'prohibited'] as CapabilityRisk[]),
       name: z.string(),
       description: z.string(),
     })).default({
@@ -176,7 +197,11 @@ export class PermissionPresetService extends Service {
         sandbox: 'danger-full-access', approval: 'never',
         name: 'danger-full-access', description: 'Full file access without approval prompts.',
       },
-    }),
+      // schemastery's ObjectT types every declared key as required, while
+      // absent keys are not validated at runtime, so the ceiling-free
+      // defaults drop capabilityRisk through this recorded cast (the
+      // Wire<T> precedent).
+    } as never),
     defaultPreset: z.string(),
   })
 
@@ -187,13 +212,13 @@ export class PermissionPresetService extends Service {
 
   constructor(ctx: Context, config: Config) {
     super(ctx, 'permissionPresets')
-    // The schema defaulted the table — the cast records that runtime fact.
+    // The schema defaulted the table 閳?the cast records that runtime fact.
     this.presets = config.presets as Record<string, PresetSpec>
     if (CUSTOM_PRESET in this.presets) {
       throw new Error(`permission: "${CUSTOM_PRESET}" is reserved for the derived not-a-preset state and cannot name a table entry`)
     }
     if (ctx.shell.sandboxMode === undefined) {
-      throw new Error('permission: the mounted bash executor does not confine (no sandboxMode) — presets bundle a sandbox mode, so composing this plugin over an unconfined executor is a misconfiguration')
+      throw new Error('permission: the mounted bash executor does not confine (no sandboxMode) 閳?presets bundle a sandbox mode, so composing this plugin over an unconfined executor is a misconfiguration')
     }
     const inferredDefault = this.derive(EMPTY_KNOBS)
     const defaultPreset = config.defaultPreset ?? inferredDefault
@@ -258,8 +283,8 @@ export class PermissionPresetService extends Service {
         description: 'Switch the permission preset (sandbox mode + approval policy)',
         input: { hint: '<preset>' },
         // No settlement text labels its value with this command's own name: a
-        // surface that renders `name · text` (the web command row) would
-        // otherwise read `permission · Permission preset: workspace-write.`
+        // surface that renders `name 璺?text` (the web command row) would
+        // otherwise read `permission 璺?Permission preset: workspace-write.`
         handler: ({ agent, rawInput }) => {
           const name = rawInput.trim()
           if (name === '') {
@@ -271,6 +296,26 @@ export class PermissionPresetService extends Service {
           this.apply(agent.session, name, (policy) =>{  this.ctx.approval.setPolicy(agent, policy) })
           return { kind: 'success', text: `preset ${name}` }
         },
+      })
+    })
+
+    // The preset capability ceiling denies through a monotonic guard, after
+    // the extensible `tools/pre-execute` waterfall: an allow decision cannot
+    // bypass it, and the executor owns the enforcement point.
+    ctx.inject(['tools'], (toolsCtx) => {
+      toolsCtx.tools.guard((exec) => {
+        if (exec.agent === undefined) return undefined
+        const presetName = this.current(exec.agent.session)
+        const ceiling = this.presets[presetName]?.capabilityRisk
+        if (ceiling === undefined) return undefined
+        const risk = toolsCtx.tools.get(exec.name, exec.agent)?.capability?.risk
+        if (risk === undefined) {
+          return `tool "${exec.name}" declares no capability metadata, which preset "${presetName}" requires`
+        }
+        if (CAPABILITY_RISK_RANK[risk] > CAPABILITY_RISK_RANK[ceiling]) {
+          return `tool "${exec.name}" risk "${risk}" exceeds the "${ceiling}" capability ceiling of preset "${presetName}"`
+        }
+        return undefined
       })
     })
   }

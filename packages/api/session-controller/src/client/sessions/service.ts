@@ -269,6 +269,7 @@ export class ClientSessions implements ISessions {
    */
   open(id: SessionId): void {
     this.manager.select(id)
+    this.followCurrent(true)
   }
 
   /**
@@ -517,13 +518,13 @@ export class ClientSessions implements ISessions {
    * — and open() is idempotent (an in-flight or completed open no-ops; a
    * failed one retries the next time current is touched).
    */
-  private followCurrent(): void {
+  private followCurrent(force = false): void {
     const snapshot = this.list.getSnapshot()
     const current = snapshot.current
     // A masked gap (current blanked while the selection's session is
     // transiently absent) holds the stage: tearing down on the gap would
     // destroy exactly the frozen scope the mask exists to preserve.
-    if (current === undefined || snapshot.byId[current] === undefined || current === this.watched) return
+    if (current === undefined || snapshot.byId[current] === undefined || !force && current === this.watched) return
     this.watched = current
     this.sweepDeferred()
     const record = this.resolve(current)

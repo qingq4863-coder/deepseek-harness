@@ -39,6 +39,60 @@ import css from './InputBar.module.css'
 
 export type InputBarProps = ComposerBarProps
 
+type SpeechRecognitionResultLike = { readonly isFinal: boolean; readonly 0: { readonly transcript: string } }
+type SpeechRecognitionEventLike = Event & {
+  readonly resultIndex: number
+  readonly results: { readonly length: number; readonly [index: number]: SpeechRecognitionResultLike }
+}
+type SpeechRecognitionLike = {
+  lang: string
+  interimResults: boolean
+  continuous: boolean
+  onresult: ((event: SpeechRecognitionEventLike) => void) | null
+  onerror: ((event: Event) => void) | null
+  onend: (() => void) | null
+  start(): void
+  stop(): void
+}
+type SpeechRecognitionConstructor = new () => SpeechRecognitionLike
+
+function speechRecognitionConstructor(): SpeechRecognitionConstructor | undefined {
+  const browser = globalThis as typeof globalThis & {
+    SpeechRecognition?: SpeechRecognitionConstructor
+    webkitSpeechRecognition?: SpeechRecognitionConstructor
+  }
+  return browser.SpeechRecognition ?? browser.webkitSpeechRecognition
+}
+
+interface VoiceControlProps {
+  readonly available: boolean
+  readonly editable: boolean
+  readonly listening: boolean
+  readonly onToggle: () => void
+  readonly t: ComposerBarProps['t']
+}
+
+function VoiceControl({ available, editable, listening, onToggle, t }: VoiceControlProps): ReactNode {
+  const label = listening ? t('input.voiceStop') : t('input.voiceStart')
+  return (
+    <Tooltip label={label} side="top" delayMs={500}>
+      <button
+        type="button"
+        className={css.voice}
+        aria-label={label}
+        aria-pressed={listening}
+        disabled={!available || !editable}
+        onClick={onToggle}
+      >
+        <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden>
+          <rect x="5" y="1.5" width="6" height="8" rx="3" fill="currentColor" />
+          <path d="M3.5 7.5a4.5 4.5 0 0 0 9 0M8 12v2.5M5.5 14.5h5" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+        </svg>
+      </button>
+    </Tooltip>
+  )
+}
+
 export const InputBar = memo(function InputBar({
   useSession, useInput, inputActions, keyboard, addImages, removeImage, draftImages,
   resolveSubmitMode, toggleCommandMenu, stop, command, t,
@@ -295,6 +349,36 @@ export const InputBar = memo(function InputBar({
     editor?.getRootElement()?.focus({ preventScroll: true })
   }
 
+  const [listening, setListening] = useState(false)
+  const speechRef = useRef<SpeechRecognitionLike | null>(null)
+  const speechCtor = speechRecognitionConstructor()
+  const speechAvailable = speechCtor !== undefined
+  const toggleSpeech = useCallback((): void => {
+    if (!speechAvailable || keyboard === undefined || !editable) return
+    if (listening) {
+      speechRef.current?.stop()
+      return
+    }
+    const recognition = new speechCtor()
+    recognition.lang = document.documentElement.lang.startsWith('zh') ? 'zh-CN' : 'en-US'
+    recognition.interimResults = false
+    recognition.continuous = false
+    recognition.onresult = (event) => {
+      let text = ''
+      for (let index = event.resultIndex; index < event.results.length; index += 1) {
+        const result = event.results[index]
+        if (result?.isFinal) text += result[0].transcript
+      }
+      if (text.trim() !== '') keyboard.paste(text)
+    }
+    recognition.onerror = () => { setListening(false); speechRef.current = null }
+    recognition.onend = () => { setListening(false); speechRef.current = null }
+    speechRef.current = recognition
+    setListening(true)
+    recognition.start()
+  }, [editable, keyboard, listening, speechAvailable, speechCtor])
+  useEffect(() => () => { speechRef.current?.stop() }, [])
+
   const onToggleCommandMenu = (): void => {
     if (keyboard !== undefined) toggleCommandMenu?.(keyboard.caretSpan())
   }
@@ -465,6 +549,7 @@ export const InputBar = memo(function InputBar({
               ? null
               : renderSlot('conversation.input.right', {})}
             {sessionId === undefined ? null : renderSlot('conversation.input.model', { locked: modelSeatLocked })}
+            <VoiceControl available={speechAvailable} editable={editable} listening={listening} onToggle={toggleSpeech} t={t} />
             <ContextMeter useProjection={useProjection} t={t} />
             {interruptible && (
               <Tooltip label={t('input.stop')} side="top" delayMs={500}>

@@ -15,18 +15,18 @@ export const inject = ['invariants']
 /**
  * Validate one whole-list todo snapshot before it reaches the durable log.
  *
- * Deliberately silent on how many items are `in_progress`. That is the tool's
- * per-deployment policy (`Config.allowParallelInProgress`), not a durable-shape
- * rule: a log written while parallel work was allowed must still replay after a
- * deployment tightens the policy, so tying the invariant to the current config
- * would reject history that was valid when it was written.
+ * Deliberately silent on how many items are `in_progress`, and on whether
+ * `evidence` belongs on a `completed` item. Both are the tool's per-deployment
+ * policy, not durable-shape rules: a log written under one policy must still
+ * replay after a deployment tightens it, so tying the invariant to the current
+ * config would reject history that was valid when it was written.
  */
 function validateTodos(value: unknown, fail: InvariantFailure): void {
   if (!Array.isArray(value)) fail('todo/write todos must be an array')
   const seen = new Set<string>()
   for (const item of value) {
     if (typeof item !== 'object' || item === null) fail('todo/write entries must be objects')
-    const { content, status } = item as Record<string, unknown>
+    const { content, status, evidence } = item as Record<string, unknown>
     if (typeof content !== 'string' || content.length === 0 || content.trim() !== content) {
       fail('todo/write content must be non-empty and already trimmed')
     }
@@ -34,6 +34,10 @@ function validateTodos(value: unknown, fail: InvariantFailure): void {
     seen.add(content)
     if (typeof status !== 'string' || !TODO_STATUSES.has(status)) {
       fail(`todo/write carries unknown status ${JSON.stringify(status)}`)
+    }
+    if (evidence !== undefined
+      && (typeof evidence !== 'string' || evidence.length === 0 || evidence.trim() !== evidence)) {
+      fail('todo/write evidence must be a non-empty and already trimmed string when present')
     }
   }
 }

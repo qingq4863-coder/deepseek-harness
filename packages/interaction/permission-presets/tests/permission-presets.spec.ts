@@ -10,6 +10,10 @@ import PermissionPresetService, {
 import type { Config } from '@deepseek-ai/dsh-permission-presets'
 import { SettingsProvider } from '@deepseek-ai/dsh-settings'
 import type { SettingsNamespace } from '@deepseek-ai/dsh-settings'
+import { ToolCallId } from '@deepseek-ai/dsh-llm'
+import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
+import ToolRuntime, { defineTool } from '@deepseek-ai/dsh-tools'
+import type { Agent } from '@deepseek-ai/dsh-agent'
 
 /** Writable memory provider for the permission/settings lifecycle specs. */
 class MemorySettings extends SettingsProvider {
@@ -86,6 +90,120 @@ describe('permission preset fold', () => {
   })
 })
 
+/** Execution signal shared by the capability-ceiling probes. */
+const ceilingSignal = new AbortController().signal
+
+function capabilityProbe(name: string, risk: 'low' | 'medium' | 'high' | 'prohibited') {
+  return defineTool({
+    name,
+    description: `${risk}-risk capability probe`,
+    parameters: {},
+    capability: { dataClass: 'workspace', risk, reversible: true, approval: 'automatic' },
+    output: { schema: { type: 'string' }, render: (_args, value) => [{ type: 'text', text: value }] },
+    async execute() { return 'ran' },
+  })
+}
+
+const unsignedProbe = defineTool({
+  name: 'unsigned-probe',
+  description: 'probe without capability metadata',
+  parameters: {},
+  output: { schema: { type: 'string' }, render: (_args, value) => [{ type: 'text', text: value }] },
+  async execute() { return 'ran' },
+})
+
+const ceilingConfig: Config = {
+  presets: {
+    'workspace-write': {
+      sandbox: 'workspace-write', approval: 'ask',
+      name: 'workspace-write', description: 'Write inside the workspace and permitted temporary directories; wider retries require approval.',
+    },
+    restricted: {
+      sandbox: 'read-only', approval: 'ask', capabilityRisk: 'medium',
+      name: 'restricted', description: 'Caps executed tool risk at medium.',
+    },
+  },
+  defaultPreset: 'workspace-write',
+}
+
+describe('preset capability ceiling', () => {
+  async function mountedWithTools(): Promise<Context> {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    await ctx.plugin(SessionProjectionRegistry)
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ToolRuntime)
+    ctx.provide('shell', {
+      sandboxMode: 'workspace-write',
+      resolve() { throw new Error('permission tests do not execute bash') },
+      run() { throw new Error('permission tests do not execute bash') },
+      start() { throw new Error('permission tests do not execute bash') },
+    })
+    ctx.provide('approval', { config: { policy: 'ask' } })
+    await ctx.plugin(PermissionPresetService, ceilingConfig)
+    return ctx
+  }
+
+  function agentOf(session: Session): Agent {
+    return { session } as unknown as Agent
+  }
+
+  it('executes declared tools unchanged while the effective preset sets no ceiling', async () => {
+    const ctx = await mountedWithTools()
+    ctx.tools.register(capabilityProbe('high-probe', 'high'))
+    const result = await ctx.tools.execute({
+      callId: ToolCallId('c-ok'), name: 'high-probe', arguments: {},
+      agent: agentOf(freshSession('sess-ceiling-default')), signal: ceilingSignal,
+    })
+    expect(result).toMatchObject({ isError: false, content: [{ type: 'text', text: 'ran' }] })
+  })
+
+  it('denies a declared tool whose risk exceeds the effective preset ceiling', async () => {
+    const ctx = await mountedWithTools()
+    ctx.tools.register(capabilityProbe('high-probe', 'high'))
+    ctx.tools.register(capabilityProbe('medium-probe', 'medium'))
+    const session = freshSession('sess-ceiling')
+    const agent = agentOf(session)
+    ctx.permissionPresets.set(session, 'restricted')
+    const denied = await ctx.tools.execute({
+      callId: ToolCallId('c-high'), name: 'high-probe', arguments: {}, agent, signal: ceilingSignal,
+    })
+    expect(denied.isError).toBe(true)
+    expect(denied.content[0]).toEqual({ type: 'text', text: 'Error: tool "high-probe" risk "high" exceeds the "medium" capability ceiling of preset "restricted"' })
+    const allowed = await ctx.tools.execute({
+      callId: ToolCallId('c-medium'), name: 'medium-probe', arguments: {}, agent, signal: ceilingSignal,
+    })
+    expect(allowed).toMatchObject({ isError: false, content: [{ type: 'text', text: 'ran' }] })
+  })
+
+  it('denies an undeclared tool while a ceiling is set (fail closed)', async () => {
+    const ctx = await mountedWithTools()
+    ctx.tools.register(unsignedProbe)
+    const session = freshSession('sess-ceiling-unsigned')
+    ctx.permissionPresets.set(session, 'restricted')
+    const result = await ctx.tools.execute({
+      callId: ToolCallId('c-unsigned'), name: 'unsigned-probe', arguments: {},
+      agent: agentOf(session), signal: ceilingSignal,
+    })
+    expect(result.isError).toBe(true)
+    expect(result.content[0]).toEqual({ type: 'text', text: 'Error: tool "unsigned-probe" declares no capability metadata, which preset "restricted" requires' })
+  })
+
+  it('applies the ceiling after an allow decision from the pre-execute waterfall', async () => {
+    const ctx = await mountedWithTools()
+    ctx.tools.register(capabilityProbe('high-probe', 'high'))
+    ctx.on('tools/pre-execute', async (_exec, next) => next())
+    const session = freshSession('sess-ceiling-waterfall')
+    ctx.permissionPresets.set(session, 'restricted')
+    const result = await ctx.tools.execute({
+      callId: ToolCallId('c-after-allow'), name: 'high-probe', arguments: {},
+      agent: agentOf(session), signal: ceilingSignal,
+    })
+    expect(result.isError).toBe(true)
+    expect(result.content[0]).toEqual({ type: 'text', text: 'Error: tool "high-probe" risk "high" exceeds the "medium" capability ceiling of preset "restricted"' })
+  })
+})
+
 describe('PermissionPresetService', () => {
   it('does not activate without the required projection registry', async () => {
     const ctx = await mounted({ projection: false })
@@ -114,7 +232,7 @@ describe('PermissionPresetService', () => {
     expect(ctx.permissionPresets.current(session)).toBe('danger-full-access')
   })
 
-  it('a knob state matching no table entry derives custom — a state, not an error', async () => {
+  it('a knob state matching no table entry derives custom 閳?a state, not an error', async () => {
     const ctx = await mounted()
     const session = freshSession('sess-custom')
     session.append('sandbox/mode', { mode: 'read-only' })

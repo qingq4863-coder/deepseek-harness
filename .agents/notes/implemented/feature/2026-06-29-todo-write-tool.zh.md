@@ -26,7 +26,7 @@ harness 为模型提供了 bash 和 subagent 工具，却没有办法记录结�
 
 ### 相比 claude-code V1 舍弃的字段：`activeForm`、id、priority
 
-claude-code V1 的条目是 `{ content, status, activeForm }`；后来（V2）增加了 id、依赖和所有权——但仅为支持 agent *集群*（以磁盘为后端、锁保护、逐项变更）。本工具将条目保持在最小集：`{ content, status }`。不要 `activeForm`（现在进行时标签）——UI 直接展示 `content`；不要 id——整列表替换不需要稳定标识；不要 priority——它只曾是 ACP `PlanEntry` 的协议格式（wire format）要求，在 bridge 边界合成为常量而非建模，并已随该投影一起离开。每舍弃一个字段，模型每次调用就少产出一项。
+claude-code V1 的条目是 `{ content, status, activeForm }`；后来（V2）增加了 id、依赖和所有权——但仅为支持 agent *集群*（以磁盘为后端、锁保护、逐项变更）。本工具将条目保持在接近最小集：`{ content, status }`，后来以一行可选的[证据](2026-09-05-todo-evidence.zh.md)扩展。不要 `activeForm`（现在进行时标签）——UI 直接展示 `content`；不要 id——整列表替换不需要稳定标识；不要 priority——它只曾是 ACP `PlanEntry` 的协议格式（wire format）要求，在 bridge 边界合成为常量而非建模，并已随该投影一起离开。每舍弃一个字段，模型每次调用就少产出一项。
 
 ### 单一所有者——无集群机制（YAGNI）
 

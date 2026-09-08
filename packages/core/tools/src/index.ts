@@ -16,7 +16,7 @@ import { assertNever, deepFreeze, snapshotJsonValue, type JsonValue } from '@dee
 import type { ToolProviderResult } from '@deepseek-ai/dsh-system-prompt'
 import type { CodeRuntime } from '@deepseek-ai/dsh-code-runtime'
 // Type-only: makes `ctx.get('approval')` resolve to the ApprovalService
-// augmentation. The seam stays optional at runtime — see `serviceAsk`.
+// augmentation. The seam stays optional at runtime 閳?see `serviceAsk`.
 import type {} from '@deepseek-ai/dsh-user-approval'
 import type { ToolCallView, ToolResultView } from './presentation.ts'
 import { assertSupportedJsonSchema, validateJsonSchemaValue } from './json-schema.ts'
@@ -28,13 +28,13 @@ import type { ToolSdkSchema } from './ts-types.ts'
 import { renderToolsSdkPy } from './py-types.ts'
 
 /**
- * Language → SDK-section renderer. The registry looks up the loaded
+ * Language 閳?SDK-section renderer. The registry looks up the loaded
  * `ctx.codeRuntime.language` in this table when assembling the `tools:sdk`
  * section under a non-native mode; a runtime whose language is not a key
  * fails the assembly loudly (same idiom as `toolOrder` violations). Adding a
- * new backend language is three parallel edits — a {@link CodeSdkLanguage}
+ * new backend language is three parallel edits 閳?a {@link CodeSdkLanguage}
  * member, an entry here, and a `RUN_CODE_FLAVORS` entry in `ptc.ts` for
- * its `run_code` schema strings — plus the renderer function this table points
+ * its `run_code` schema strings 閳?plus the renderer function this table points
  * at. The `satisfies` clause pins this table's key set to that union, which
  * the flavor table is checked against too, so any of the three left out is a
  * typecheck failure. What no check reaches is the prose that names the values
@@ -48,7 +48,7 @@ import { renderToolsSdkPy } from './py-types.ts'
  * (the call fails) and the route (inside the program), because a rule the
  * model can only discover by being denied is one it corrects too late.
  */
-const PTC_ONLY_INSTRUCTION = `\`${RUN_CODE_NAME}\` is the only tool you can call directly — a tool call naming any other tool fails. Reach every tool the SDK declares below from inside the program.`
+const PTC_ONLY_INSTRUCTION = `\`${RUN_CODE_NAME}\` is the only tool you can call directly 閳?a tool call naming any other tool fails. Reach every tool the SDK declares below from inside the program.`
 
 const SDK_RENDERERS: Record<string, (schemas: ToolSdkSchema[]) => string> = {
   typescript: renderToolsSdk,
@@ -171,7 +171,7 @@ declare module '@deepseek-ai/cordis' {
      * `tool/code-dispatch` event. `next()` keeps the
      * content unchanged; a listener may return replacement blocks (e.g. the
      * spill policy's preview + locator for an oversized text result). Only the
-     * logged copy is affected — the program already received the complete
+     * logged copy is affected 閳?the program already received the complete
      * value, and the model sees neither. A throwing listener is contained:
      * the bridge falls back to logging the original settled content.
      * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent's dispatches.
@@ -189,7 +189,7 @@ declare module '@deepseek-ai/cordis' {
     'tools/result'(this: Scoped<ToolRuntime>, exec: Readonly<ToolExecution>, result: Readonly<ToolExecutionResult>): undefined
     /**
      * A tool was registered or unregistered, or a scoped restriction changed
-     * (the available tool set changed — possibly for one scope only). An
+     * (the available tool set changed 閳?possibly for one scope only). An
      * UNFILTERED registry-subject notification, deliberately not scope-filtered
      * dispatch: a global change concerns every agent's next assembly, so a
      * scoped listener subscribing here sees every change, not just its own
@@ -210,8 +210,43 @@ export interface ToolOutputDefinition {
   presentationMeta?(args: unknown, value: JsonValue): JsonValue
 }
 
-/** A registered tool: its schema plus the execution function. */
+/** Descriptive capability metadata kept off the model-facing tool schema. */
+export interface ToolCapabilityMetadata {
+  readonly dataClass: 'public' | 'workspace' | 'sensitive' | 'secret'
+  readonly risk: 'low' | 'medium' | 'high' | 'prohibited'
+  readonly readScope?: readonly string[]
+  readonly writeScope?: readonly string[]
+  readonly network?: readonly string[]
+  readonly reversible: boolean
+  readonly approval: 'automatic' | 'scoped' | 'explicit' | 'prohibited'
+}
+
+/** Closed metadata values accepted by the registration validator. */
+const DATA_CLASSES = ['public', 'workspace', 'sensitive', 'secret'] as const
+const CAPABILITY_RISKS = ['low', 'medium', 'high', 'prohibited'] as const
+const CAPABILITY_APPROVALS = ['automatic', 'scoped', 'explicit', 'prohibited'] as const
+
+function assertCapabilityMetadata(toolName: string, capability: ToolCapabilityMetadata | undefined): void {
+  if (capability === undefined) return
+  if (!DATA_CLASSES.includes(capability.dataClass)) throw new TypeError(`tool "${toolName}" capability.dataClass is invalid`)
+  if (!CAPABILITY_RISKS.includes(capability.risk)) throw new TypeError(`tool "${toolName}" capability.risk is invalid`)
+  if (!CAPABILITY_APPROVALS.includes(capability.approval)) throw new TypeError(`tool "${toolName}" capability.approval is invalid`)
+  if (typeof capability.reversible !== 'boolean') throw new TypeError(`tool "${toolName}" capability.reversible must be boolean`)
+  for (const [field, values] of Object.entries({
+    readScope: capability.readScope,
+    writeScope: capability.writeScope,
+    network: capability.network,
+  })) {
+    if (values !== undefined && (!Array.isArray(values) || values.some(value => typeof value !== 'string' || value.length === 0))) {
+      throw new TypeError(`tool "${toolName}" capability.${field} must be an array of non-empty strings`)
+    }
+  }
+}
+
+/** A registered tool: its schema plus execution function and optional descriptive metadata. */
 export interface ToolDefinition extends ToolSchema {
+  /** Descriptive capability metadata; it never grants or changes authorization. */
+  readonly capability?: ToolCapabilityMetadata
   /** Mandatory canonical output declaration. */
   readonly output: ToolOutputDefinition
   /**
@@ -240,7 +275,7 @@ export interface ToolDefinition extends ToolSchema {
   /**
    * Cooperative tool-call timeout budget in milliseconds. Omit for no deadline.
    * Enforced by `@deepseek-ai/dsh-tool-call-timeout-policy` (a `tools/execute` wrapper); it
-   * is NEVER sent to the model — `schemas()` whitelists only name/description/
+   * is NEVER sent to the model 閳?`schemas()` whitelists only name/description/
    * parameters. Declaring it asserts this tool forwards `exec.signal` to a
    * cooperative implementation that can reach quiescence when the signal aborts.
    */
@@ -261,7 +296,7 @@ export interface ToolDefinition extends ToolSchema {
   isConcurrencySafe?(args: unknown): boolean
   /**
    * Optional: how to present the PENDING state of one call in a UI, derived from
-   * the call's `args` (parsed arguments, `unknown` — the tool validates/narrows
+   * the call's `args` (parsed arguments, `unknown` 閳?the tool validates/narrows
    * its own input). Returns a {@link ToolCallView} (a `card`-tagged render intent),
    * or `undefined` (or omit the method) to fall back to a generic presentation
    * (title = tool name, raw args as input). Pure and side-effect-free: a UI may
@@ -322,7 +357,7 @@ export interface ToolExecutionInput {
    * the outer `run_code` outcome without receiving its live mutable execution.
    * The token also marks the call as a transport sub-dispatch rather than a
    * model-direct call: under `mode: 'ptc'`, only calls WITH a parent may
-   * execute a native tool name — a model-direct call (no parent) is denied as
+   * execute a native tool name 閳?a model-direct call (no parent) is denied as
    * `UNKNOWN_TOOL` before the policy pipeline. See {@link ToolRuntime.execute}.
    */
   readonly parent?: ToolExecutionToken
@@ -343,7 +378,7 @@ export type ToolExecutionMode =
  * `tools/ptc-dispatch-log` waterfall: the parent execution (session owner,
  * outer call identity), the sub-call identity, and the outcome whose durable
  * copy a listener may reshape. `content` is the RENDERED result projection
- * (what a native `tool/result` would carry) — the program itself received
+ * (what a native `tool/result` would carry) 閳?the program itself received
  * the structured `value` (or just the error message on failure); only the
  * `tool/code-dispatch` event's copy changes.
  */
@@ -389,15 +424,15 @@ export interface ToolDispatchExecution extends Omit<ToolExecution, 'signal'> {
 /**
  * Runtime context handed to a tool implementation after the registry has
  * accepted a {@link ToolExecution}. {@link deferContext} attaches context to
- * this execution's own result — a composite tool ferries nested-dispatch
+ * this execution's own result 閳?a composite tool ferries nested-dispatch
  * context back to the outer result, and a leaf tool may mint a fresh
  * plugin-sourced instruction; the loop appends it only after the
  * `tool/result`.
  */
 export interface ToolRunContext extends ToolExecution {
   /**
-   * Defer one context — typically a nested-dispatch context ferried by a
-   * composite tool, or a fresh plugin-sourced instruction — until this tool's
+   * Defer one context 閳?typically a nested-dispatch context ferried by a
+   * composite tool, or a fresh plugin-sourced instruction 閳?until this tool's
    * final result reaches the agent loop. Contexts retain their individual
    * source and metadata and are emitted in call order.
    */
@@ -481,7 +516,7 @@ export interface ToolFailure {
 /**
  * Thrown (internally) when the model requests a tool that isn't registered.
  * Extends {@link HarnessError} (`code: 'UNKNOWN_TOOL'`) so an unknown-tool
- * failure is as routable as a tool-thrown one — retry/sandbox/replay code can
+ * failure is as routable as a tool-thrown one 閳?retry/sandbox/replay code can
  * distinguish it from a tool body's own error.
  */
 export class ToolNotFoundError extends HarnessError {
@@ -659,8 +694,8 @@ export interface Config {
   /**
    * Concurrency cap for a `run_code` program's overlapping sub-calls
    * (default 10, the loop scheduler's own default). Sub-calls follow the
-   * native scheduling contract — only calls whose tools classify
-   * concurrency-safe overlap; exclusive calls form barriers — so `1`
+   * native scheduling contract 閳?only calls whose tools classify
+   * concurrency-safe overlap; exclusive calls form barriers 閳?so `1`
    * restores strictly serial dispatch. Must be a positive integer.
    */
   maxParallelSubCalls?: number
@@ -859,7 +894,7 @@ export class ToolRuntime extends Service {
    * deployment and per scope by {@link presentAs}.
    *
    * The body regenerates from the CALLING scope, and renders empty for an
-   * agent presenting natively — an agent that opted out under a PTC mode
+   * agent presenting natively 閳?an agent that opted out under a PTC mode
    * deployment still sees the global registration, and an empty section is
    * dropped from the rendered prompt.
    * @returns the section registration.
@@ -995,13 +1030,13 @@ export class ToolRuntime extends Service {
   /**
    * Resolve the code runtime or throw the actionable misconfiguration error.
    * Read at use time (assembly / run_code execution), NOT via static
-   * `inject`: an inject entry would hold `ctx.tools` — and every tool plugin
-   * behind it — hostage to a code runtime existing even under `mode:
+   * `inject`: an inject entry would hold `ctx.tools` 閳?and every tool plugin
+   * behind it 閳?hostage to a code runtime existing even under `mode:
    * 'native'`.
    *
    * Assembly and `run_code` execution read separately, so the language is not
-   * bound to a request. Harmless while one published backend exists — both
-   * reads return the same flavor — but a reload that swapped in a second
+   * bound to a request. Harmless while one published backend exists 閳?both
+   * reads return the same flavor 閳?but a reload that swapped in a second
    * language between them would hand a program written against one SDK to the
    * other. Binding it is deferred until a second backend ships (the first
    * point it is testable); rationale in the
@@ -1010,7 +1045,7 @@ export class ToolRuntime extends Service {
   private requireCodeRuntime(mode: ToolPresentationMode): CodeRuntime {
     const runtime = this.ctx.get('codeRuntime')
     if (!runtime) {
-      throw new Error(`dsh-tools: mode "${mode}" requires a code runtime — load a ctx.codeRuntime implementation (e.g. @deepseek-ai/dsh-code-runtime-worker-thread) or set tools mode to "native"`)
+      throw new Error(`dsh-tools: mode "${mode}" requires a code runtime 閳?load a ctx.codeRuntime implementation (e.g. @deepseek-ai/dsh-code-runtime-worker-thread) or set tools mode to "native"`)
     }
     if (!Object.hasOwn(SDK_RENDERERS, runtime.language)) {
       const known = Object.keys(SDK_RENDERERS).map(name => JSON.stringify(name)).join(', ')
@@ -1034,6 +1069,7 @@ export class ToolRuntime extends Service {
       throw new TypeError(`tool "${name}" must declare output { schema, render, presentationMeta? }`)
     }
     assertSupportedJsonSchema(output.schema)
+    assertCapabilityMetadata(name, definition.capability)
     const timeoutMs = definition.timeoutMs
     if (timeoutMs !== undefined
       && (!Number.isFinite(timeoutMs) || timeoutMs <= 0)) {
@@ -1062,7 +1098,7 @@ export class ToolRuntime extends Service {
   restrict(filter: ToolRestriction): () => void {
     const scope = scopeOf(this.ctx)
     if (scope === undefined) {
-      throw new Error('tools.restrict() requires a scoped context (agent.ctx): a context-global restriction would mask every agent — deny the tool for the intended agent instead')
+      throw new Error('tools.restrict() requires a scoped context (agent.ctx): a context-global restriction would mask every agent 閳?deny the tool for the intended agent instead')
     }
     const allow = filter.allow
     const deny = filter.deny
@@ -1125,8 +1161,8 @@ export class ToolRuntime extends Service {
    * other sets retain the pre-restriction facts needed by restriction and
    * prompt-order validation.
    *
-   * A restriction filters what a scope inherits — the global layer and every
-   * ancestor layer on its chain — and never what its OWN layer registers.
+   * A restriction filters what a scope inherits 閳?the global layer and every
+   * ancestor layer on its chain 閳?and never what its OWN layer registers.
    * That exemption is what a per-child capability filter has to keep intact:
    * the delegation runtime registers a child's structured-output tool into the
    * child's own layer, and a filter naming the capabilities the child may use
@@ -1201,7 +1237,7 @@ export class ToolRuntime extends Service {
    * collapse at the operation boundary that owns it. The registry view
    * (`get`) is presentation-agnostic; here a MODEL-DIRECT call under `ptc`
    * may only name the reserved `run_code` transport, while a nested
-   * sub-dispatch (a `parent` token set — the `run_code` SDK calling a tool
+   * sub-dispatch (a `parent` token set 閳?the `run_code` SDK calling a tool
    * it bound) may call any visible tool. Denial surfaces as `UNKNOWN_TOOL`
    * through the executor, matching an absent definition.
    * @param name - the tool name as registered.
@@ -1281,7 +1317,7 @@ export class ToolRuntime extends Service {
    * Contained: when a listener throws, the method logs the original settled
    * content; that failure must not fail the dispatch or omit the settle event. Private:
    * the ONE consumer is the `run_code` bridge this registry constructs, which
-   * receives it as a capability parameter (the `requireRuntime` idiom) — the
+   * receives it as a capability parameter (the `requireRuntime` idiom) 閳?the
    * waterfall, not this invoker, is the public extension point.
    */
   private async shapeDispatchLog(dispatch: PtcDispatchLog): Promise<ContentBlock[]> {
@@ -1306,7 +1342,7 @@ export class ToolRuntime extends Service {
    * Resolved through {@link modeFor}, NOT `defaultMode`: an agent given `ptc`
    * by an agent preset under a native deployment is the composition
    * `dsh-agent-tool-presentation` exists for, and reading the deployment default would
-   * leave exactly that agent uncollapsed — announcing one surface while
+   * leave exactly that agent uncollapsed 閳?announcing one surface while
    * executing another, which is the bypass this collapse closes.
    * @param name - the tool name as registered.
    * @param scope - the viewing scope whose effective presentation mode applies.
@@ -1365,7 +1401,7 @@ export class ToolRuntime extends Service {
     // the `ptc` collapse) from a genuinely unknown tool. A collapsed call is
     // deterministically denied, so it terminates BEFORE the extensible policy
     // pipeline: pre-execute listeners, approval `ask`, and guards must never
-    // observe — or worse, approve — a call that can only fail. An unknown tool
+    // observe 閳?or worse, approve 閳?a call that can only fail. An unknown tool
     // keeps the historical dispatch-stage `UNKNOWN_TOOL` path so policy
     // listeners still see every name that reaches the registry.
     const visible = this.get(name, agent)
@@ -1391,7 +1427,7 @@ export class ToolRuntime extends Service {
     // and an arguments getter can replace or clear the registered callback
     // during `snapshotJsonValue`. The collapse only decides whether the
     // CAPTURED callback is retained: the pre-dispatch abort path keeps it
-    // (the cancellation contract routes aborted results through it — a getter
+    // (the cancellation contract routes aborted results through it 閳?a getter
     // that aborts mid-materialization before an invalid-args failure lands in
     // the same retained path), while the `UNKNOWN_TOOL` denial and the
     // invalid-args failure of a NON-ABORTED collapsed call drop it (the call
@@ -1429,7 +1465,7 @@ export class ToolRuntime extends Service {
           exec: execution,
           result: toolErrorResult(new ToolNotFoundError(
             name,
-            `only \`${RUN_CODE_NAME}\` is callable directly — call \`${name}\` from inside a \`${RUN_CODE_NAME}\` program instead`,
+            `only \`${RUN_CODE_NAME}\` is callable directly 閳?call \`${name}\` from inside a \`${RUN_CODE_NAME}\` program instead`,
           )),
         }
       }
@@ -1462,14 +1498,26 @@ export class ToolRuntime extends Service {
       return next({ kind: 'final-result', exec, result: toolAbortedBeforeDispatchResult() })
     }
     try {
+      const capability = this.get(exec.name, exec.agent)?.capability
+      if (capability?.approval === 'prohibited') {
+        const reason = `tool "${exec.name}" is prohibited by its capability declaration`
+        return await next({ kind: 'post-result', exec, result: this.materializeFinalResult({
+          content: [{ type: 'text', text: `Error: ${reason}` }],
+          isError: true,
+          error: { message: reason },
+        }) })
+      }
       const carrier = scopeTarget(this, exec.agent)
       const gate = await this.ctx.waterfall(
         carrier, 'tools/pre-execute', exec,
         () => Promise.resolve<PreToolDecision>({ kind: 'allow' }),
       )
-      const askResolution: ToolAskResolution = gate.kind === 'ask'
-        ? await this.serviceAsk(exec, gate)
-        : { decision: gate, approvalCancelled: false }
+      const effectiveGate: PreToolDecision = gate.kind === 'allow' && capability?.approval === 'explicit'
+        ? { kind: 'ask', reason: `tool "${exec.name}" requires explicit approval` }
+        : gate
+      const askResolution: ToolAskResolution = effectiveGate.kind === 'ask'
+        ? await this.serviceAsk(exec, effectiveGate)
+        : { decision: effectiveGate, approvalCancelled: false }
       const { decision } = askResolution
       if (this.callerCancelled(exec) && askResolution.approvalCancelled) {
         return await next({ kind: 'post-result', exec, result: toolAbortedBeforeDispatchResult() })
@@ -1668,12 +1716,12 @@ export class ToolRuntime extends Service {
 
   /**
    * Resolve an `ask` decision to allow/deny through the approval seam. The
-   * seam is consumed opportunistically with `ctx.get('approval')` — a
+   * seam is consumed opportunistically with `ctx.get('approval')` 閳?a
    * deployment that composes no ApprovalService keeps the historical degrade
    * to deny, and an unmount mid-session degrades the same way on the next ask.
    * An agent-less execution also degrades: without an agent there is no
    * session to audit to and no UI to route to. Otherwise the outcome maps
-   * one-to-one — `allowed-once` proceeds; the three non-grants deny with
+   * one-to-one 閳?`allowed-once` proceeds; the three non-grants deny with
    * distinct reasons so the model can tell a human "no" from an absent
    * approval channel.
    */
@@ -1728,7 +1776,7 @@ export class ToolRuntime extends Service {
    * Context deferred by the tool body survives an accepted result but is
    * discarded when the outer call is blocked; a block exposes only context the
    * blocking decision explicitly supplied.
-   * Runs inside `execute`'s outer try/catch (a throwing listener → isError).
+   * Runs inside `execute`'s outer try/catch (a throwing listener 閳?isError).
    */
   private async postExecute(exec: ToolExecution, result: ToolExecutionResult): Promise<ToolExecutionResult> {
     const decision = await this.ctx.waterfall(

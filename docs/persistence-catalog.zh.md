@@ -842,7 +842,7 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 
 类型：[TodoItem](subsystems/todo.zh.md)
 
-来源：[`packages/todo/tool-todo/src/types.ts:31`](../packages/todo/tool-todo/src/types.ts)
+来源：[`packages/todo/tool-todo/src/types.ts:36`](../packages/todo/tool-todo/src/types.ts)
 
 ### `tool/*`
 

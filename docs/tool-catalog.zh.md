@@ -41,7 +41,8 @@
 | `@deepseek-ai/dsh-tool-subagent-control` | `interrupt_agent`、`list_agents`、`send_message` | `ctx.tools`、`ctx.subagents`、`ctx.agents and ctx.sessionProjections (list_agents only)` | `tool/call`、`tool/result`、`child session events through ctx.subagents` | - | 这些是控制可继续后台 subagent 的全局命名工具：绑定提供方的 `tool-subagent` 实例注册不同的委派工具；本包注册一次 `send_message` 和 `interrupt_agent`，另由 `list_agents` 通过单独加载的 `/list-agents` 插件提供，其目录行使用 sessionProjections 和实时 Agent 注册表。 |
 | `@deepseek-ai/dsh-tool-jobs` | `job_kill`、`job_list`、`job_output` | `ctx.tools`、`ctx.jobs`、`ctx.systemPrompt` | `tool/call`、`tool/result`、`user/message via agent.inject() for background completion notices` | - | 与任务种类无关的后台任务控制器：后台 bash 命令、PTY 发送和 subagent 都通过相同的 3 个工具读取、列出和终止。加载该插件会挂接控制器，从而启用生产方的 `ctx.jobs.start()`。 |
 | `@deepseek-ai/dsh-experimental-tool-agent-team` | `interrupt_agent`、`list_agents`、`send_message`、`spawn_teammate`、`team_task_create`、`team_task_get`、`team_task_list`、`team_task_update`、`wait_agent` | `ctx.tools`、`ctx.systemPrompt`、`ctx.agentTeams`、`an exact live Team member Agent` | `tool/call`、`team/member`、`team/message/queued`、`team/message/delivered`、`team/task`、`tool/result` | - | 这 9 个工具限定于隐式 Team Lead 与持久 teammate 作用域。随产品发布的 dsh-base bundle 默认禁用该包；文档中的 Agent Teams profile patch 会启用它，并禁用旧 continuable child 的同名控制工具。 |
-| `@deepseek-ai/dsh-tool-todo` | `todo_write` | `ctx.tools`、`owning Agent session` | `tool/call`、`todo/write`、`tool/result` | - | todo_write 是会话所有的状态；UI 将最新的 todo/write 事件渲染为检查清单。`allowParallelInProgress` 是没有默认值的必填项，因此本目录明确选择 `true`，对应描述允许同时存在多个 `in_progress` 项。选择 `false` 的部署会获得同一工具，但描述会要求只能有 1 个活动任务。 |
+| `@deepseek-ai/dsh-experimental-tool-env-inspect` | `env_inspect`、`env_version` | `ctx.tools`、`ctx.approval`、`ctx.subprocess` | `tool/call`、`tool/result` | - | env_inspect 与 env_version 是安装器规划的环境探测：输入命令名，输出 PATH 上的可执行路径，并可对每个获批名字运行一次受审批门禁、受死线限制的 --version。该包为实验性、被排除在正式发布之外，且没有任何 shipped profile 挂载它；目录记录的上限是目录对必填 config 自行做出的选择。 |
+| `@deepseek-ai/dsh-tool-todo` | `todo_write` | `ctx.tools`、`owning Agent session` | `tool/call`、`todo/write`、`tool/result` | - | todo_write 是会话所有的状态；UI 将最新的 todo/write 事件渲染为检查清单。`allowParallelInProgress` 是没有默认值的必填项，因此本目录明确选择 `true`，对应描述允许同时存在多个 `in_progress` 项。选择 `false` 的部署会获得同一工具，但描述会要求只能有 1 个活动任务。`requireCompletedEvidence` 同样是没有默认值的必填项；本目录选择 `false`，对应描述在完成项上邀请附上证据——选择 `true` 的部署会获得要求证据的描述，工具也会拒绝没有证据的完成项。 |
 | `@deepseek-ai/dsh-tool-workflow` | `workflow` | `ctx.tools`、`ctx.workflowEngine`、`ctx.systemPrompt`、`a calling Agent (exec.agent parents the script children)` | `tool/call`、`tool/result` | - | - |
 | `@deepseek-ai/dsh-tool-web` | `web_fetch`、`web_search` | `ctx.tools`、`ctx.web`、`ctx.systemPrompt` | `tool/call`、`tool/result` | - | web_search 和 web_fetch 将提供方选择置于 ctx.web 之后，使模型可见 schema 在更换后端时保持稳定。 |
 
@@ -2041,7 +2042,7 @@ lsp 工具将提供方选择和语言服务器子进程置于 ctx.lsp 之后，�
 
 ### `todo_write`
 
-记录并更新当前工作的结构化任务列表。每次调用都要发送**完整列表**，它会**替换**之前的列表，不支持局部更新或逐项编辑。请用它规划多步骤工作并展示进度：开始前为每个具体步骤添加一项 todo。将当前正在处理的每项 todo 标记为 `in_progress`；确实并行运行时（例如并发 subagent 或后台命令）可同时标记多项，顺序工作则标记 1 项。只要工作尚未完成，就应至少有一项任务为 `in_progress`。某项 todo 完成后立即标记为 `completed`，不要批量标记完成；只有全部工作完成后，才可以没有 `in_progress` 项。简单的单步骤任务无需使用列表。状态：`pending`（未开始）、`in_progress`（正在处理）、`completed`（已完成）。
+记录并更新当前工作的结构化任务列表。每次调用都要发送**完整列表**，它会**替换**之前的列表，不支持局部更新或逐项编辑。请用它规划多步骤工作并展示进度：开始前为每个具体步骤添加一项 todo。将当前正在处理的每项 todo 标记为 `in_progress`；确实并行运行时（例如并发 subagent 或后台命令）可同时标记多项，顺序工作则标记 1 项。只要工作尚未完成，就应至少有一项任务为 `in_progress`。把 todo 标记为 `completed` 时，请附加 `evidence`——一行文字，指明通过的检查或证明它的产物；`evidence` 只对 `completed` 项有效。某项 todo 完成后立即标记为 `completed`，不要批量标记完成；只有全部工作完成后，才可以没有 `in_progress` 项。简单的单步骤任务无需使用列表。状态：`pending`（未开始）、`in_progress`（正在处理）、`completed`（已完成）。
 
 ```json
 {
@@ -2066,6 +2067,10 @@ lsp 工具将提供方选择和语言服务器子进程置于 ctx.lsp 之后，�
               "in_progress",
               "completed"
             ]
+          },
+          "evidence": {
+            "type": "string",
+            "description": "One-line proof a completed task is done — the check that passed or the artifact."
           }
         },
         "required": [
@@ -2083,7 +2088,63 @@ lsp 工具将提供方选择和语言服务器子进程置于 ctx.lsp 之后，�
 
 来源：[`packages/todo/tool-todo/src/index.ts`](../packages/todo/tool-todo/src/index.ts)
 
-todo_write 是会话所有的状态；UI 将最新的 todo/write 事件渲染为检查清单。`allowParallelInProgress` 是没有默认值的必填项，因此本目录明确选择 `true`，对应描述允许同时存在多个 `in_progress` 项。选择 `false` 的部署会获得同一工具，但描述会要求只能有 1 个活动任务。
+todo_write 是会话所有的状态；UI 将最新的 todo/write 事件渲染为检查清单。`allowParallelInProgress` 是没有默认值的必填项，因此本目录明确选择 `true`，对应描述允许同时存在多个 `in_progress` 项。选择 `false` 的部署会获得同一工具，但描述会要求只能有 1 个活动任务。`requireCompletedEvidence` 同样是没有默认值的必填项；本目录选择 `false`，对应描述在完成项上邀请附上证据——选择 `true` 的部署会获得要求证据的描述，工具也会拒绝没有证据的完成项。
+
+<a id="deepseek-aidsh-experimental-tool-env-inspect"></a>
+
+## `@deepseek-ai/dsh-experimental-tool-env-inspect`
+
+### `env_inspect`
+
+检查这台机器上安装了哪些命令。发送一组命令名（如 `git`、`python`）；每个名字都会返回在 PATH 上找到的可执行路径——第一个就是 shell 会运行的那个——未安装时返回空列表。只读：不执行、不下载、不安装任何东西。只有 PATH 上的可执行文件可见；shell 内建命令与别名不可见。
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "commands": {
+      "type": "array",
+      "description": "Command names to look up, without paths or arguments.",
+      "items": {
+        "type": "string",
+        "description": "A bare command name, e.g. `git`."
+      }
+    }
+  },
+  "required": [
+    "commands"
+  ]
+}
+```
+
+来源：[`packages/experimental/tool-env-inspect/src/index.ts`](../packages/experimental/tool-env-inspect/src/index.ts)
+
+### `env_version`
+
+探测已安装命令的版本。发送一组命令名（如 `git`、`node`）；每个名字都会在 PATH 上解析，其 `--version` 输出从一个受死线限制的子进程捕获。每次探测都会在子进程运行前请求一次性审批决定，决定不是允许时被拒绝，因此该工具会执行程序——与从不运行任何东西的 env_inspect 不同。
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "commands": {
+      "type": "array",
+      "description": "Command names to probe, without paths or arguments.",
+      "items": {
+        "type": "string",
+        "description": "A bare command name, e.g. `git`."
+      }
+    }
+  },
+  "required": [
+    "commands"
+  ]
+}
+```
+
+来源：[`packages/experimental/tool-env-inspect/src/index.ts`](../packages/experimental/tool-env-inspect/src/index.ts)
+
+env_inspect 与 env_version 是安装器规划的环境探测：输入命令名，输出 PATH 上的可执行路径，并可对每个获批名字运行一次受审批门禁、受死线限制的 --version。该包为实验性、被排除在正式发布之外，且没有任何 shipped profile 挂载它；目录记录的上限是目录对必填 config 自行做出的选择。
 
 <a id="deepseek-aidsh-tool-workflow"></a>
 

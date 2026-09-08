@@ -25,7 +25,25 @@ describe('todo snapshot invariants', () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
     await ctx.plugin(ToolRuntime)
-    await ctx.plugin(ToolTodo, { allowParallelInProgress: false })
+    await ctx.plugin(ToolTodo, { allowParallelInProgress: false, requireCompletedEvidence: false })
+    const session = ctx.sessions.create()
+    session.append('turn/start', { turn: 1 })
+    session.append('todo/write', { todos: [...todos] })
+    await ctx.plugin(InvariantRegistry, { enabled: true })
+
+    await expect(ctx.plugin(TodoInvariant).then(() => undefined)).resolves.toBeUndefined()
+    expect(() => { session.append('todo/write', { todos: [...todos] }) }).not.toThrow()
+  })
+
+  it('accepts evidence as a shape-only rule, silent on the status association', async () => {
+    const todos = [
+      { content: 'Done with proof', status: 'completed', evidence: 'tests passed' },
+      { content: 'Historical shape', status: 'pending', evidence: 'recorded by another build' },
+    ] as const
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    await ctx.plugin(ToolRuntime)
+    await ctx.plugin(ToolTodo, { allowParallelInProgress: false, requireCompletedEvidence: false })
     const session = ctx.sessions.create()
     session.append('turn/start', { turn: 1 })
     session.append('todo/write', { todos: [...todos] })
@@ -45,6 +63,9 @@ describe('todo snapshot invariants', () => {
     [[{ content: 'same', status: 'pending' }, { content: 'same', status: 'completed' }], /repeats content/],
     [[{ content: 'task', status: 42 }], /unknown status/],
     [[{ content: 'task', status: 'paused' }], /unknown status/],
+    [[{ content: 'task', status: 'completed', evidence: 42 }], /evidence must be a non-empty/],
+    [[{ content: 'task', status: 'completed', evidence: '' }], /evidence must be a non-empty/],
+    [[{ content: 'task', status: 'completed', evidence: ' padded ' }], /already trimmed/],
   ])('rejects an incoherent durable todo snapshot', async (todos, message) => {
     const ctx = await setup()
     const session = ctx.sessions.create()

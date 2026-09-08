@@ -37,7 +37,8 @@ This table connects model-visible tool names to the plugin package and service s
 | `@deepseek-ai/dsh-tool-subagent-control` | `interrupt_agent`, `list_agents`, `send_message` | `ctx.tools`, `ctx.subagents`, `ctx.agents and ctx.sessionProjections (list_agents only)` | `tool/call`, `tool/result`, `child session events through ctx.subagents` | - | The globally named control tools over continuable background subagents: provider-bound `tool-subagent` instances register distinct delegation tools, while this package registers `send_message` and `interrupt_agent` once, plus `list_agents` from its separately loaded `/list-agents` plugin (whose catalog rows use the sessionProjections and live Agent registries). |
 | `@deepseek-ai/dsh-tool-jobs` | `job_kill`, `job_list`, `job_output` | `ctx.tools`, `ctx.jobs`, `ctx.systemPrompt` | `tool/call`, `tool/result`, `user/message via agent.inject() for background completion notices` | - | The kind-agnostic background-job controller: background bash commands, PTY sends, and subagents are read, listed, and killed through the same three tools. Loading the plugin attaches the controller that arms producers' `ctx.jobs.start()`. |
 | `@deepseek-ai/dsh-experimental-tool-agent-team` | `interrupt_agent`, `list_agents`, `send_message`, `spawn_teammate`, `team_task_create`, `team_task_get`, `team_task_list`, `team_task_update`, `wait_agent` | `ctx.tools`, `ctx.systemPrompt`, `ctx.agentTeams`, `an exact live Team member Agent` | `tool/call`, `team/member`, `team/message/queued`, `team/message/delivered`, `team/task`, `tool/result` | - | All nine tools are scoped to implicit Team Leads and durable teammates. The shipped dsh-base bundle keeps the package disabled; the documented Agent Teams profile patch enables it while disabling the legacy continuable-child control names. |
-| `@deepseek-ai/dsh-tool-todo` | `todo_write` | `ctx.tools`, `owning Agent session` | `tool/call`, `todo/write`, `tool/result` | - | todo_write is session-owned state; UIs render the latest todo/write event as a checklist. `allowParallelInProgress` is required with no default, so the catalog states its choice: `true`, whose description invites several `in_progress` items. A deployment choosing `false` receives the same tool with a description asking for exactly one active task. |
+| `@deepseek-ai/dsh-tool-todo` | `todo_write` | `ctx.tools`, `owning Agent session` | `tool/call`, `todo/write`, `tool/result` | - | todo_write is session-owned state; UIs render the latest todo/write event as a checklist. `allowParallelInProgress` is required with no default, so the catalog states its choice: `true`, whose description invites several `in_progress` items. A deployment choosing `false` receives the same tool with a description asking for exactly one active task. `requireCompletedEvidence` is also required with no default; the catalog states `false`, whose description invites evidence on completed items — a deployment choosing `true` gets a description that demands it and a tool that rejects a completed item without evidence. |
+| `@deepseek-ai/dsh-experimental-tool-env-inspect` | `env_inspect`, `env_version` | `ctx.tools`, `ctx.approval`, `ctx.subprocess` | `tool/call`, `tool/result` | - | env_inspect and env_version are the environment probe of the installer plan: command names in, executable paths on PATH out, and optionally one approval-gated, time-limited --version run per approved name. The package is experimental and excluded from official releases, and no shipped profile mounts it; the cataloged bounds are the catalog's own choices of the required config. |
 | `@deepseek-ai/dsh-tool-workflow` | `workflow` | `ctx.tools`, `ctx.workflowEngine`, `ctx.systemPrompt`, `a calling Agent (exec.agent parents the script children)` | `tool/call`, `tool/result` | - | - |
 | `@deepseek-ai/dsh-tool-web` | `web_fetch`, `web_search` | `ctx.tools`, `ctx.web`, `ctx.systemPrompt` | `tool/call`, `tool/result` | - | web_search and web_fetch keep provider selection behind ctx.web so model-visible schemas stay stable across backend swaps. |
 
@@ -2034,7 +2035,7 @@ All nine tools are scoped to implicit Team Leads and durable teammates. The ship
 
 ### `todo_write`
 
-Record and update a structured task list for the current work. Send the ENTIRE list every call — it REPLACES the previous list (there are no partial updates, no per-item edits). Use it to plan multi-step work and show progress: add one todo per concrete step before you start. Mark every todo being actively worked on `in_progress` — several at once when work genuinely runs in parallel (e.g. concurrent subagents or background commands), one for sequential work; while work remains, at least one task should be `in_progress`. Mark a todo `completed` the moment it is done (do not batch completions), and allow no `in_progress` item only once all work is complete. Skip the list for trivial single-step tasks. Statuses: `pending` (not started), `in_progress` (being worked on now), `completed` (finished).
+Record and update a structured task list for the current work. Send the ENTIRE list every call — it REPLACES the previous list (there are no partial updates, no per-item edits). Use it to plan multi-step work and show progress: add one todo per concrete step before you start. Mark every todo being actively worked on `in_progress` — several at once when work genuinely runs in parallel (e.g. concurrent subagents or background commands), one for sequential work; while work remains, at least one task should be `in_progress`. When you mark a todo `completed`, attach `evidence` — one line naming the check that passed or the artifact that proves it; `evidence` is only valid on `completed` items. Mark a todo `completed` the moment it is done (do not batch completions), and allow no `in_progress` item only once all work is complete. Skip the list for trivial single-step tasks. Statuses: `pending` (not started), `in_progress` (being worked on now), `completed` (finished).
 
 ```json
 {
@@ -2059,6 +2060,10 @@ Record and update a structured task list for the current work. Send the ENTIRE l
               "in_progress",
               "completed"
             ]
+          },
+          "evidence": {
+            "type": "string",
+            "description": "One-line proof a completed task is done — the check that passed or the artifact."
           }
         },
         "required": [
@@ -2076,7 +2081,63 @@ Record and update a structured task list for the current work. Send the ENTIRE l
 
 Source: [`packages/todo/tool-todo/src/index.ts`](../packages/todo/tool-todo/src/index.ts)
 
-todo_write is session-owned state; UIs render the latest todo/write event as a checklist. `allowParallelInProgress` is required with no default, so the catalog states its choice: `true`, whose description invites several `in_progress` items. A deployment choosing `false` receives the same tool with a description asking for exactly one active task.
+todo_write is session-owned state; UIs render the latest todo/write event as a checklist. `allowParallelInProgress` is required with no default, so the catalog states its choice: `true`, whose description invites several `in_progress` items. A deployment choosing `false` receives the same tool with a description asking for exactly one active task. `requireCompletedEvidence` is also required with no default; the catalog states `false`, whose description invites evidence on completed items — a deployment choosing `true` gets a description that demands it and a tool that rejects a completed item without evidence.
+
+<a id="deepseek-aidsh-experimental-tool-env-inspect"></a>
+
+## `@deepseek-ai/dsh-experimental-tool-env-inspect`
+
+### `env_inspect`
+
+Inspect which commands are installed on this machine. Send a list of command names (e.g. `git`, `python`); each comes back with the executable paths found on PATH — the first one is what a shell would run — or an empty list when it is not installed. Read-only: nothing is executed, downloaded, or installed. Only executable files on PATH are visible; shell built-ins and aliases are not.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "commands": {
+      "type": "array",
+      "description": "Command names to look up, without paths or arguments.",
+      "items": {
+        "type": "string",
+        "description": "A bare command name, e.g. `git`."
+      }
+    }
+  },
+  "required": [
+    "commands"
+  ]
+}
+```
+
+Source: [`packages/experimental/tool-env-inspect/src/index.ts`](../packages/experimental/tool-env-inspect/src/index.ts)
+
+### `env_version`
+
+Probe installed command versions. Send a list of command names (e.g. `git`, `node`); each name is resolved on PATH, and its `--version` output is captured from a time-limited child process. Every probe asks for a one-shot approval decision before the child runs and is denied when the decision is not an allow, so this tool executes programs — unlike env_inspect, which never runs anything.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "commands": {
+      "type": "array",
+      "description": "Command names to probe, without paths or arguments.",
+      "items": {
+        "type": "string",
+        "description": "A bare command name, e.g. `git`."
+      }
+    }
+  },
+  "required": [
+    "commands"
+  ]
+}
+```
+
+Source: [`packages/experimental/tool-env-inspect/src/index.ts`](../packages/experimental/tool-env-inspect/src/index.ts)
+
+env_inspect and env_version are the environment probe of the installer plan: command names in, executable paths on PATH out, and optionally one approval-gated, time-limited --version run per approved name. The package is experimental and excluded from official releases, and no shipped profile mounts it; the cataloged bounds are the catalog's own choices of the required config.
 
 <a id="deepseek-aidsh-tool-workflow"></a>
 

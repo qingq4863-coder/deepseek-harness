@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-`dsh-tool-todo` gives the agent a structured task list to plan with: break multi-step work into concrete tasks, mark the task you are working on, and check tasks off as they finish. The list survives across turns and reopened sessions, so the agent and the UI always see the latest plan. One configuration flag decides whether several tasks may be in progress at once, for agents that run work in parallel. Use it wherever an agent should keep a visible task list; each update replaces the whole list, and only the owning agent session can change it.
+`dsh-tool-todo` gives the agent a structured task list to plan with: break multi-step work into concrete tasks, mark the task you are working on, and check tasks off as they finish. The list survives across turns and reopened sessions, so the agent and the UI always see the latest plan. Two configuration flags decide whether several tasks may be in progress at once and whether completed tasks must carry their proof, for agents that run work in parallel or answer to a completion-evidence discipline. Use it wherever an agent should keep a visible task list; each update replaces the whole list, and only the owning agent session can change it.
 
 ## Table of Contents
 
@@ -33,23 +33,25 @@ Choose it when one agent session should own the task list and whole-list updates
 
 ### Minimal configuration
 
-`allowParallelInProgress` is required with no default: a composition that omits it fails at load, and a non-boolean value is rejected. Set `true` for agents that may run work concurrently (subagents, background commands, workflow fan-out) and `false` for the single-active discipline.
+`allowParallelInProgress` and `requireCompletedEvidence` are required with no default: a composition that omits either fails at load, and a non-boolean value is rejected. Set `allowParallelInProgress` to `true` for agents that may run work concurrently (subagents, background commands, workflow fan-out) and `false` for the single-active discipline. Set `requireCompletedEvidence` to `true` for the evidence-gated discipline — the description demands a proof line and a completed item without one is rejected — and `false` to keep the invitation without the gate.
 
 ```yaml
 - name: '@deepseek-ai/dsh-tool-todo'
   config:
     allowParallelInProgress: true
+    requireCompletedEvidence: false
 ```
 
 | Field | Default | Meaning |
 |---|---|---|
 | `allowParallelInProgress` | required | Whether several todos may be `in_progress` at once; also selects the active-status clause of the model description |
+| `requireCompletedEvidence` | required | Whether a `completed` todo must carry `evidence`; also selects the evidence clause of the model description |
 
 The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-tool-todo) is the exhaustive source for the accepted field.
 
 ### What each call does
 
-The agent sends the ENTIRE list on every update; the new list replaces the previous one, so there are no partial updates or per-item edits. Each item is a short task description plus a status of `pending`, `in_progress`, or `completed`. A successful update returns the new counts — `Updated todo list: <pending> pending, <inProgress> in progress, <completed> completed.` — and the UI shows the new plan. Updates fail visibly when a task description is empty or duplicated, when an item carries fields beyond the description and status, or — when parallel work is disabled — when more than one task is marked in progress.
+The agent sends the ENTIRE list on every update; the new list replaces the previous one, so there are no partial updates or per-item edits. Each item is a short task description plus a status of `pending`, `in_progress`, or `completed`; a completed item may carry one `evidence` line naming the check that passed or the artifact that proves it, evidence on a non-completed item is rejected, and — when the deployment requires evidence — a completed item without one is rejected too. A successful update returns the new counts — `Updated todo list: <pending> pending, <inProgress> in progress, <completed> completed.` — and the UI shows the new plan. Updates fail visibly when a task description is empty or duplicated, when an item carries fields beyond the description and status, or — when parallel work is disabled — when more than one task is marked in progress.
 
 ### Single owner
 
@@ -71,7 +73,7 @@ The tool is built on four commitments:
 
 - **Whole-list replace, log-backed state.** The model resends the entire list; the `todo/write` snapshot lives on the event-sourced session log, so durability, replay, and resume reconstruction come from the log rather than a service.
 - **Single owner.** The list belongs to the calling agent session; there is no shared or swarm scope, and non-agent callers are rejected.
-- **Deployment policy, not a coded rule.** `allowParallelInProgress` is a required composition choice because the tool cannot observe runtime concurrency; the durable-log invariant deliberately stays silent on the active count so a log written under one policy still replays under another.
+- **Deployment policy, not a coded rule.** `allowParallelInProgress` and `requireCompletedEvidence` are required composition choices because the tool cannot observe runtime concurrency or the deployment's evidence discipline; the durable-log invariant deliberately stays silent on the active count and on the status-evidence pairing so a log written under one policy still replays under another.
 - **Validation keeps the logged snapshot honest.** Schema-level rejection of unknown keys and `execute`-level rejection of empty or duplicate content keep the durable snapshot equal to what the model believes it wrote.
 
 The [todo_write tool Agent Note](../../../.agents/notes/implemented/feature/2026-06-29-todo-write-tool.md) records the original design and alternatives; the [parallel in-progress Agent Note](../../../.agents/notes/implemented/feature/2026-07-26-todo-parallel-in-progress.md) records the policy decision.
@@ -95,7 +97,7 @@ When the composition mounts `ctx.sessionProjections` ([`@deepseek-ai/dsh-session
 
 ### Durable-log invariant
 
-The invariant companion registers on `ctx.invariants`, validates existing and newly announced sessions once, and then advances a committed per-session turn trace for live appends. It rejects malformed entries, empty or duplicated content, unknown statuses, and any durable `todo/write` outside an open turn; core session treats declaration-merged events generically, while this producing package owns todo-specific rules. It deliberately says nothing about how many items are `in_progress`, because that is the tool's per-deployment policy, not a durable-data rule ([event ownership](../../../.agents/notes/implemented/architecture/2026-07-20-todo-event-ownership.md)).
+The invariant companion registers on `ctx.invariants`, validates existing and newly announced sessions once, and then advances a committed per-session turn trace for live appends. It rejects malformed entries, empty or duplicated content, unknown statuses, malformed evidence lines, and any durable `todo/write` outside an open turn; core session treats declaration-merged events generically, while this producing package owns todo-specific rules. It deliberately says nothing about how many items are `in_progress` or whether a completed item carries evidence, because those are the tool's per-deployment policies, not durable-data rules ([event ownership](../../../.agents/notes/implemented/architecture/2026-07-20-todo-event-ownership.md)).
 
 ### Call mechanics
 
@@ -116,6 +118,7 @@ Read these pages when the package-level contract is not enough. They move from t
 - [Generated configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-tool-todo) — every accepted config field and its source declaration.
 - [todo_write tool Agent Note](../../../.agents/notes/implemented/feature/2026-06-29-todo-write-tool.md) — the original design, alternatives, and dropped fields.
 - [parallel in-progress Agent Note](../../../.agents/notes/implemented/feature/2026-07-26-todo-parallel-in-progress.md) — why the active-count cap is a deployment policy.
+- [todo evidence Agent Note](../../../.agents/notes/implemented/feature/2026-09-05-todo-evidence.md) — the completion-evidence line and its enforcement switch.
 - [todo plan clears on next turn Agent Note](../../../.agents/notes/implemented/feature/2026-07-28-todo-plan-clears-on-next-turn.md) — the projection's standing-plan lifetime.
 
 -----
@@ -127,7 +130,7 @@ Read these pages when the package-level contract is not enough. They move from t
 
 #### What the model sees
 
-The model sees the generated [`todo_write` schema](../../../docs/tool-catalog.md#deepseek-aidsh-tool-todo): an object with one required `todos` array of `{ content, status }` items, where `status` is `pending`, `in_progress`, or `completed`. The description is the composed whole-list instruction whose active-status clause follows `allowParallelInProgress`.
+The model sees the generated [`todo_write` schema](../../../docs/tool-catalog.md#deepseek-aidsh-tool-todo): an object with one required `todos` array of `{ content, status, evidence? }` items, where `status` is `pending`, `in_progress`, or `completed` and `evidence` is the one-line completion proof. The description is the composed whole-list instruction whose active-status clause follows `allowParallelInProgress` and whose evidence clause follows `requireCompletedEvidence`.
 
 #### Token effect
 
@@ -141,7 +144,7 @@ Prefix-stable while the definition and visibility are unchanged. Plugin lifecycl
 
 #### What the model sees
 
-Each assistant tool call retains the entire replacement list in its arguments. Success returns exactly `Updated todo list: <pending> pending, <inProgress> in progress, <completed> completed.` Stable failures are ``Error: invalid todo: `content` must be a non-empty string``, `Error: invalid todos: duplicate content "<content>"`, `Error: todo_write requires an owning agent session`, and — only where the deployment set `allowParallelInProgress: false` — `Error: invalid todos: at most one task may be in_progress (got <n>)`. The full `todo/write` session event is UI and replay state, not a second model message.
+Each assistant tool call retains the entire replacement list in its arguments. Success returns exactly `Updated todo list: <pending> pending, <inProgress> in progress, <completed> completed.` Stable failures are ``Error: invalid todo: `content` must be a non-empty string``, `Error: invalid todos: duplicate content "<content>"`, `Error: invalid todo: `evidence` must be a non-empty string when present`, `Error: invalid todo: `evidence` is only valid on completed items`, `Error: todo_write requires an owning agent session`, and — only where the deployment set `allowParallelInProgress: false` — `Error: invalid todos: at most one task may be in_progress (got <n>)`, and — only where the deployment set `requireCompletedEvidence: true` — `Error: invalid todo: a `completed` task must carry `evidence` naming the check that proved it`. The full `todo/write` session event is UI and replay state, not a second model message.
 
 #### Token effect
 
@@ -159,7 +162,8 @@ Append-only; newly visible content follows the reusable request prefix and does 
 These limits define when the tool is a poor fit. They are current package constraints, not a task backlog.
 
 - **Single-owner scope only** — the list belongs to the one calling agent session; subagent, shared, and swarm scopes are a deliberate cut, and a non-agent caller is rejected.
-- **The item shape is deliberately minimal** — `content` plus three-state `status`; whole-list replacement needs no stable id, priority, or active-form fields.
+- **The item shape is deliberately minimal** — `content`, three-state `status`, and one optional `evidence` line; whole-list replacement needs no stable id, priority, or active-form fields.
+- **Evidence discipline is a per-deployment choice** — `requireCompletedEvidence: true` rejects a completed item without its proof line; `false` invites it without demanding. Either way the invariant never rejects history written under the other policy.
 - **Whole-list replacement is the only operation** — no partial updates, no read-back tool, and no per-item edits; the model must resend the entire list each call.
 
 <a id="dev-note"></a>

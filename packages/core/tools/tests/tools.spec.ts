@@ -47,7 +47,7 @@ describe('ToolRuntime', () => {
       description: 'echo arguments back',
       parameters: { type: 'object', properties: { text: { type: 'string' } } },
     }])
-    // schemas() result must not leak execute — ToolSchema deliberately has no
+    // schemas() result must not leak execute 閳?ToolSchema deliberately has no
     // 'execute' key, so widen through unknown to probe for the absent property
     expect((ctx.tools.schemas()[0] as unknown as Record<string, unknown>).execute).toBeUndefined()
 
@@ -55,7 +55,7 @@ describe('ToolRuntime', () => {
     expect(assembly.tools.map(t => t.name)).toEqual(['echo'])
   })
 
-  it('schemas() drops host callbacks — they must never reach the model', async () => {
+  it('schemas() drops host callbacks 閳?they must never reach the model', async () => {
     const ctx = await setup()
     // Tool definitions contain output, finalization, execution, and presentation
     // callbacks. schemas() is an explicit allowlist so none can reach the model.
@@ -76,7 +76,79 @@ describe('ToolRuntime', () => {
     expect(schema.execute).toBeUndefined()
   })
 
-  it('schemas() excludes timeoutMs — the budget must never reach the model', async () => {
+  it('preserves capability metadata for policy consumers without exposing it to the model', async () => {
+    const ctx = await setup()
+    const capability = {
+      dataClass: 'workspace' as const,
+      risk: 'medium' as const,
+      readScope: ['workspace'] as const,
+      writeScope: ['workspace'] as const,
+      network: [] as const,
+      reversible: true,
+      approval: 'scoped' as const,
+    }
+    ctx.tools.register(defineTool({
+      name: 'described', description: 'has capability metadata', parameters: {}, capability,
+      output: { schema: { type: 'string' }, render: (_args, value) => [{ type: 'text', text: value }] },
+      async execute() { return 'ok' },
+    }))
+    expect(ctx.tools.get('described')?.capability).toEqual(capability)
+    expect(ctx.tools.schemas()[0]).not.toHaveProperty('capability')
+  })
+
+  it('rejects malformed capability metadata at registration', async () => {
+    const ctx = await setup()
+    expect(() => ctx.tools.register({ ...echoTool, name: 'invalid-capability', capability: { ...echoTool.capability, dataClass: 'private' } as never })).toThrow(/capability\.dataClass is invalid/)
+  })
+
+  it('rejects prohibited capability declarations before policy listeners', async () => {
+    const ctx = await setup()
+    let ran = false
+    ctx.tools.register(defineTool({
+      name: 'prohibited-tool', description: 'must never run', parameters: {},
+      capability: { dataClass: 'secret', risk: 'prohibited', reversible: false, approval: 'prohibited' },
+      output: { schema: { type: 'string' }, render: (_args, value) => [{ type: 'text', text: value }] },
+      async execute() { ran = true; return 'bad' },
+    }))
+    ctx.on('tools/pre-execute', async (_exec, next) => next())
+    const result = await ctx.tools.execute({ signal: testToolSignal, callId: ToolCallId('c-prohibited'), name: 'prohibited-tool', arguments: {} })
+    expect(result.isError).toBe(true)
+    expect(result.content[0]).toEqual({ type: 'text', text: 'Error: tool "prohibited-tool" is prohibited by its capability declaration' })
+    expect(ran).toBe(false)
+  })
+
+  it('routes explicit capability declarations through approval', async () => {
+    const ctx = await setup()
+    await ctx.plugin(ApprovalService, { policy: 'never' })
+    ctx.tools.register(defineTool({
+      name: 'explicit-tool', description: 'needs approval', parameters: {},
+      capability: { dataClass: 'workspace', risk: 'high', reversible: true, approval: 'explicit' },
+      output: { schema: { type: 'string' }, render: (_args, value) => [{ type: 'text', text: value }] },
+      async execute() { return 'bad' },
+    }))
+    const result = await ctx.tools.execute({ signal: testToolSignal, callId: ToolCallId('c-explicit'), name: 'explicit-tool', arguments: {} })
+    expect(result.isError).toBe(true)
+    expect(result.content[0]).toEqual({ type: 'text', text: 'Error: tool "explicit-tool" requires approval, but the call has no agent to route it through' })
+  })
+
+  it('pre-execute consumers can inspect metadata without changing authorization', async () => {
+    const ctx = await setup()
+    ctx.tools.register(defineTool({
+      name: 'policy-visible', description: 'metadata consumer test', parameters: {},
+      capability: { dataClass: 'public', risk: 'low', reversible: true, approval: 'automatic' },
+      output: { schema: { type: 'string' }, render: (_args, value) => [{ type: 'text', text: value }] },
+      async execute() { return 'ok' },
+    }))
+    let observed: string | undefined
+    ctx.on('tools/pre-execute', async (exec) => {
+      observed = ctx.tools.get(exec.name)?.capability?.risk
+      return { kind: 'allow' }
+    })
+    await ctx.tools.execute({ signal: testToolSignal, callId: ToolCallId('c-policy'), name: 'policy-visible', arguments: {} })
+    expect(observed).toBe('low')
+  })
+
+  it('schemas() excludes timeoutMs 閳?the budget must never reach the model', async () => {
     const ctx = await setup()
     ctx.tools.register(defineContentToolFixture({
       name: 'budgeted', description: 'has a budget', parameters: {}, timeoutMs: 5_000,
@@ -581,7 +653,7 @@ describe('ToolRuntime', () => {
         return 'terminal'
       },
     })
-    // A composite that forwards the marker from the nested result — the Code
+    // A composite that forwards the marker from the nested result 閳?the Code
     // Mode dispatch shape. A recovering composite (nested failure swallowed)
     // has no marker to forward: ToolExecutionFailure types concludesTurn as
     // never, so only an authoritative nested success can conclude the run.
@@ -828,7 +900,7 @@ describe('ToolRuntime', () => {
       expect(result.content[0]).toMatchObject({ text: 'Error: tool "echo" requires approval, but no approval channel is available' })
     })
 
-    it('denies an agent-less execution without asking — nothing to route or audit through', async () => {
+    it('denies an agent-less execution without asking 閳?nothing to route or audit through', async () => {
       const ctx = await approvalSetup()
       let asked = false
       ctx.on('approval/request', () => {
@@ -2168,7 +2240,7 @@ describe('defineTool / schema DSL', () => {
     void tool
   })
 
-  it('registry round-trips a defineTool definition (register→schemas→execute)', async () => {
+  it('registry round-trips a defineTool definition (register閳姱chemas閳姀xecute)', async () => {
     const ctx = await setup()
     ctx.tools.register(defineTool({
       name: 'roundtrip',
@@ -2682,7 +2754,7 @@ describe('defineTool validation (the runtime-validation Agent Note, part 1)', ()
         return typeof args
       },
     })
-    // Missing the "required" path — but raw tools validate their own input, so
+    // Missing the "required" path 閳?but raw tools validate their own input, so
     // this reaches execute rather than being rejected by the harness.
     const result = await ctx.tools.execute({ signal: testToolSignal, callId: ToolCallId('c1'), name: 'raw', arguments: {} })
     expect(result.isError).toBe(false)
@@ -2748,7 +2820,7 @@ describe('defineTool presentation (presentCall / presentResult)', () => {
       parameters: { path: { type: 'string', required: true }, n: { type: 'number' } },
       async execute() { return [{ type: 'text', text: 'ok' }] },
       presentCall(args) {
-        // args is typed { path: string; n?: number } — zero casts.
+        // args is typed { path: string; n?: number } 閳?zero casts.
         expectTypeOf(args).toEqualTypeOf<{ path: string; n?: number }>()
         return { card: 'generic', title: `Open ${args.path}`, kind: 'read', rawInput: args.path }
       },

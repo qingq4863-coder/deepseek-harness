@@ -4,11 +4,11 @@ English | [中文](tools.zh.md)
 
 The tool pipeline of [dsh-tools](../../packages/core/tools). [core.md](core.md) introduces `ToolDefinition` as the pipeline-authoring type shared by the core packages; the model-facing [`ToolSchema`](llm-streaming.md#the-model-request-and-result) wire type is declared with the model request. This page documents every `ToolDefinition` field, the typed schema DSL that builds it, the guarded execution types, and the UI-presentation types.
 
-Source: [`packages/core/tools/src/index.ts`](../../packages/core/tools/src/index.ts) · [`packages/core/tools/src/schema.ts`](../../packages/core/tools/src/schema.ts) · [`packages/core/tools/src/presentation.ts`](../../packages/core/tools/src/presentation.ts)
+Source: [`packages/core/tools/src/index.ts`](../../packages/core/tools/src/index.ts) 璺?[`packages/core/tools/src/schema.ts`](../../packages/core/tools/src/schema.ts) 璺?[`packages/core/tools/src/presentation.ts`](../../packages/core/tools/src/presentation.ts)
 
-## `ToolDefinition` — a registered tool
+## `ToolDefinition` 閳?a registered tool
 
-A `ToolSchema` (the model-facing fields) plus a mandatory canonical output declaration, the `execute` function, host-only scheduler metadata, an optional final-content callback, and optional UI presenters. The registry holds these; the loop dispatches calls through them. The registry's `schemas()` builds the model-facing `ToolSchema[]` by an explicit allowlist — `output`/`execute`/`finalizeContent`/`timeoutMs`/`isConcurrencySafe`/`presentCall`/`presentResult` must never leak into a model request.
+A `ToolSchema` (the model-facing fields) plus a mandatory canonical output declaration, the `execute` function, host-only capability and scheduler metadata, an optional final-content callback, and optional UI presenters. The registry holds these; the loop dispatches calls through them. The registry's `schemas()` builds the model-facing `ToolSchema[]` by an explicit allowlist 閳?`capability`/`output`/`execute`/`finalizeContent`/`timeoutMs`/`isConcurrencySafe`/`presentCall`/`presentResult` must never leak into a model request.
 
 ```ts type-equiv
 /** Tool-owned canonical output contract used after the body returns a JSON value. */
@@ -23,8 +23,10 @@ interface ToolOutputDefinition {
 ```
 
 ```ts type-equiv
-/** A registered tool: its schema plus the execution function. */
+/** A registered tool: its schema plus execution function and optional descriptive metadata. */
 interface ToolDefinition extends ToolSchema {
+  /** Descriptive capability metadata; it never grants or changes authorization. */
+  readonly capability?: ToolCapabilityMetadata
   /** Mandatory canonical output declaration. */
   readonly output: ToolOutputDefinition
   /**
@@ -53,7 +55,7 @@ interface ToolDefinition extends ToolSchema {
   /**
    * Cooperative tool-call timeout budget in milliseconds. Omit for no deadline.
    * Enforced by `@deepseek-ai/dsh-tool-call-timeout-policy` (a `tools/execute` wrapper); it
-   * is NEVER sent to the model — `schemas()` whitelists only name/description/
+   * is NEVER sent to the model 閳?`schemas()` whitelists only name/description/
    * parameters. Declaring it asserts this tool forwards `exec.signal` to a
    * cooperative implementation that can reach quiescence when the signal aborts.
    */
@@ -74,7 +76,7 @@ interface ToolDefinition extends ToolSchema {
   isConcurrencySafe?(args: unknown): boolean
   /**
    * Optional: how to present the PENDING state of one call in a UI, derived from
-   * the call's `args` (parsed arguments, `unknown` — the tool validates/narrows
+   * the call's `args` (parsed arguments, `unknown` 閳?the tool validates/narrows
    * its own input). Returns a {@link ToolCallView} (a `card`-tagged render intent),
    * or `undefined` (or omit the method) to fall back to a generic presentation
    * (title = tool name, raw args as input). Pure and side-effect-free: a UI may
@@ -93,7 +95,7 @@ interface ToolDefinition extends ToolSchema {
 }
 ```
 
-`execute` receives `args: unknown` — a raw `ToolDefinition` validates its own input. First-party tools don't write that by hand; they use `defineTool`, which validates and narrows the arguments, infers the body return from `output.schema`, and types both output projectors. `finalizeContent` deliberately receives the immutable execution instead of typed arguments because invalid-input and outer pipeline failures reach it too; it may enforce a tool-owned content bound while preserving `isError`, canonical value, structured error identity, deferred contexts, and presentation metadata.
+`execute` receives `args: unknown` 閳?a raw `ToolDefinition` validates its own input. First-party tools don't write that by hand; they use `defineTool`, which validates and narrows the arguments, infers the body return from `output.schema`, and types both output projectors. `finalizeContent` deliberately receives the immutable execution instead of typed arguments because invalid-input and outer pipeline failures reach it too; it may enforce a tool-owned content bound while preserving `isError`, canonical value, structured error identity, deferred contexts, and presentation metadata.
 
 ## The unified JSON-value schema DSL
 
@@ -146,11 +148,11 @@ type InferValue<S> = InferValueAt<S, []>
 type InferArgs<S> = InferProperties<S, []>
 ```
 
-`defineTool({ name, description, parameters, output, execute, … })` ties parameter inference to `parameterSchemaSpecToJsonSchema()` and `validateArgs()`, and ties `execute`/`render`/`presentationMeta` to `InferValue<OutputSchema>`. Schema records contain only own enumerable string keys, and schema arrays are dense intrinsic arrays, so inference, compilation, and validation observe the same declaration. Inference stays exact through 16 container levels and then widens to `JsonValue`; runtime validation keeps walking the complete schema. `valueSchemaSpecToJsonSchema()` compiles output declarations through the same enforced raw subset. A parameter mismatch throws `ToolArgsError` (`INVALID_ARGS`); an invalid body or post-policy value throws `ToolOutputError` (`INVALID_TOOL_OUTPUT`). Both use the normal tool-error path. Raw JSON Schema remains open by default; unsupported keywords reject instead of being accepted without enforcement.
+`defineTool({ name, description, parameters, output, execute, 閳?})` ties parameter inference to `parameterSchemaSpecToJsonSchema()` and `validateArgs()`, and ties `execute`/`render`/`presentationMeta` to `InferValue<OutputSchema>`. Schema records contain only own enumerable string keys, and schema arrays are dense intrinsic arrays, so inference, compilation, and validation observe the same declaration. Inference stays exact through 16 container levels and then widens to `JsonValue`; runtime validation keeps walking the complete schema. `valueSchemaSpecToJsonSchema()` compiles output declarations through the same enforced raw subset. A parameter mismatch throws `ToolArgsError` (`INVALID_ARGS`); an invalid body or post-policy value throws `ToolOutputError` (`INVALID_TOOL_OUTPUT`). Both use the normal tool-error path. Raw JSON Schema remains open by default; unsupported keywords reject instead of being accepted without enforcement.
 
 Registration is a trusted same-process contract. The registry borrows the typed definition as readonly input, requires `output`, validates its raw schema, and checks semantic requirements such as a positive finite `timeoutMs`; `schemas()` constructs the model-facing projection when building a request, so execution and presentation share one resolved definition without leaking callbacks onto the wire.
 
-## `ToolRestriction` — one scope's live filter over what it inherits
+## `ToolRestriction` 閳?one scope's live filter over what it inherits
 
 `ToolRestriction` applies to the tools a scope inherits: the deployment-global layer plus every ancestor scope on its chain. The registry compiles readonly names into private sets, intersects multiple restrictions, then overlays the scope's OWN registrations, which stay exempt so a delegated child keeps the tools it answers through. A deny-only filter admits later unlisted inherited tools, while an allow-list excludes them.
 
@@ -169,7 +171,7 @@ interface ToolRestriction {
 
 ## Execution: extensible waterfalls plus monotonic policy
 
-`ctx.tools.execute()` accepts a caller-owned `ToolExecutionInput` with a required readonly `signal`, materializes its parsed JSON arguments once into a pipeline-owned `ToolExecution`, and runs that call through `tools/pre-execute` (the reorderable allow/deny/ask waterfall) → registered monotonic guards → `tools/execute` (around-dispatch wrappers) → `tools/post-execute` (inspect/replace the result) → optional definition-owned `finalizeContent` → `tools/result` (the immutable authoritative outcome). Only the `tools/execute` view may replace the required signal. The outcome is a `ToolExecutionResult`.
+`ctx.tools.execute()` accepts a caller-owned `ToolExecutionInput` with a required readonly `signal`, materializes its parsed JSON arguments once into a pipeline-owned `ToolExecution`, and runs that call through `tools/pre-execute` (the reorderable allow/deny/ask waterfall) 閳?registered monotonic guards 閳?`tools/execute` (around-dispatch wrappers) 閳?`tools/post-execute` (inspect/replace the result) 閳?optional definition-owned `finalizeContent` 閳?`tools/result` (the immutable authoritative outcome). Only the `tools/execute` view may replace the required signal. The outcome is a `ToolExecutionResult`.
 
 ```ts type-equiv
 /** Opaque call identity that permits correlation without exposing mutable execution state. */
@@ -200,7 +202,7 @@ interface ToolExecutionInput {
    * the outer `run_code` outcome without receiving its live mutable execution.
    * The token also marks the call as a transport sub-dispatch rather than a
    * model-direct call: under `mode: 'ptc'`, only calls WITH a parent may
-   * execute a native tool name — a model-direct call (no parent) is denied as
+   * execute a native tool name 閳?a model-direct call (no parent) is denied as
    * `UNKNOWN_TOOL` before the policy pipeline. See {@link ToolRuntime.execute}.
    */
   readonly parent?: ToolExecutionToken
@@ -209,21 +211,21 @@ interface ToolExecutionInput {
 }
 ```
 
-A tool body receives the runtime extension. `deferContext()` attaches context to the execution's own result — the composite-tool nested-dispatch channel, also usable by a leaf tool minting a plugin-sourced instruction — without injecting inside the still-open outer call.
+A tool body receives the runtime extension. `deferContext()` attaches context to the execution's own result 閳?the composite-tool nested-dispatch channel, also usable by a leaf tool minting a plugin-sourced instruction 閳?without injecting inside the still-open outer call.
 
 ```ts type-equiv
 /**
  * Runtime context handed to a tool implementation after the registry has
  * accepted a {@link ToolExecution}. {@link deferContext} attaches context to
- * this execution's own result — a composite tool ferries nested-dispatch
+ * this execution's own result 閳?a composite tool ferries nested-dispatch
  * context back to the outer result, and a leaf tool may mint a fresh
  * plugin-sourced instruction; the loop appends it only after the
  * `tool/result`.
  */
 interface ToolRunContext extends ToolExecution {
   /**
-   * Defer one context — typically a nested-dispatch context ferried by a
-   * composite tool, or a fresh plugin-sourced instruction — until this tool's
+   * Defer one context 閳?typically a nested-dispatch context ferried by a
+   * composite tool, or a fresh plugin-sourced instruction 閳?until this tool's
    * final result reaches the agent loop. Contexts retain their individual
    * source and metadata and are emitted in call order.
    */
@@ -260,7 +262,7 @@ PTC mode's bridge additionally exposes each settled sub-dispatch to the `tools/p
  * `tools/ptc-dispatch-log` waterfall: the parent execution (session owner,
  * outer call identity), the sub-call identity, and the outcome whose durable
  * copy a listener may reshape. `content` is the RENDERED result projection
- * (what a native `tool/result` would carry) — the program itself received
+ * (what a native `tool/result` would carry) 閳?the program itself received
  * the structured `value` (or just the error message on failure); only the
  * `tool/code-dispatch` event's copy changes.
  */
@@ -458,26 +460,26 @@ type ObjectJsonSchema = JsonSchemaNode & { type: 'object' }
 
 ## Tool-presentation UI vocabulary
 
-How a tool wants its call shown in a UI (an editor tool-call card, a CLI log line), provider-neutral so a tool describes itself without depending on any client protocol. `presentCall`/`presentResult` return a **`card`-tagged render intent** — a discriminated union a UI bridge switches on:
+How a tool wants its call shown in a UI (an editor tool-call card, a CLI log line), provider-neutral so a tool describes itself without depending on any client protocol. `presentCall`/`presentResult` return a **`card`-tagged render intent** 閳?a discriminated union a UI bridge switches on:
 
-- `ToolCallView` (pending): `{ card: 'generic', title, kind?, rawInput?, content?, locations? }` (the default card; `locations` is `{ path, line? }[]` files the call reads/modifies, for editor follow-along), `{ card: 'terminal', title, description?, cwd? }` (a shell command → a terminal card), or `{ card: 'diff', title, diffs, locations? }` (a file create/modify → an inline diff card; `diffs` is `{ path, oldText, newText }[]`, `oldText: null` for a new file).
-- `ToolResultView` (completed): `{ card: 'generic', title?, content? }`, `{ card: 'terminal', title?, output?, exitCode?, signal? }` (the captured run output + exit; a capable UI shows an exit-status pill, while another may derive a fenced ` ```console ` fallback), `{ card: 'diff', title?, diffs }` (a completed file mutation → the change to show, typically the applied hunks with context lines computed from the before/after content, or a whole-file diff when there is no before-image), `{ card: 'search', shape, title?, truncated, total, … }` (a completed discovery search → grouped-by-file matches for `shape: 'matches'` (grep) or a flat path list for `shape: 'paths'` (glob); `truncated`/`total` report whether the inline result was capped so a UI never presents a partial result as complete; the view carries no result text — a UI without a search card falls back to the raw result content), `{ card: 'read', title?, path, offset, lines, totalLines, lang?, content? }` (a completed file read → a line-numbered, optionally syntax-highlighted code view; `offset` is the 1-based first line the window requested, kept even when `lines` is empty; `lang` is a language hint from the extension, and `content` is the envelope-stripped text a UI without read support falls back to), or `{ card: 'web', kind: 'search' | 'fetch', title?, … }` (a completed web retrieval; `kind: 'search'` carries the structured `sources`/`answer?`/`truncated`, `kind: 'fetch'` carries `url`/`statusCode`/`truncated`, and a UI without the `web` capability falls back to the raw result content — the body is not duplicated into the view). Completed views replace pending views, so mutation tools return a diff result even when it duplicates the call-time snippet; a search and a web retrieval have no `card` call-time analogue (their pending state stays a generic card, since the structured result exists only after `execute`).
+- `ToolCallView` (pending): `{ card: 'generic', title, kind?, rawInput?, content?, locations? }` (the default card; `locations` is `{ path, line? }[]` files the call reads/modifies, for editor follow-along), `{ card: 'terminal', title, description?, cwd? }` (a shell command 閳?a terminal card), or `{ card: 'diff', title, diffs, locations? }` (a file create/modify 閳?an inline diff card; `diffs` is `{ path, oldText, newText }[]`, `oldText: null` for a new file).
+- `ToolResultView` (completed): `{ card: 'generic', title?, content? }`, `{ card: 'terminal', title?, output?, exitCode?, signal? }` (the captured run output + exit; a capable UI shows an exit-status pill, while another may derive a fenced ` ```console ` fallback), `{ card: 'diff', title?, diffs }` (a completed file mutation 閳?the change to show, typically the applied hunks with context lines computed from the before/after content, or a whole-file diff when there is no before-image), `{ card: 'search', shape, title?, truncated, total, 閳?}` (a completed discovery search 閳?grouped-by-file matches for `shape: 'matches'` (grep) or a flat path list for `shape: 'paths'` (glob); `truncated`/`total` report whether the inline result was capped so a UI never presents a partial result as complete; the view carries no result text 閳?a UI without a search card falls back to the raw result content), `{ card: 'read', title?, path, offset, lines, totalLines, lang?, content? }` (a completed file read 閳?a line-numbered, optionally syntax-highlighted code view; `offset` is the 1-based first line the window requested, kept even when `lines` is empty; `lang` is a language hint from the extension, and `content` is the envelope-stripped text a UI without read support falls back to), or `{ card: 'web', kind: 'search' | 'fetch', title?, 閳?}` (a completed web retrieval; `kind: 'search'` carries the structured `sources`/`answer?`/`truncated`, `kind: 'fetch'` carries `url`/`statusCode`/`truncated`, and a UI without the `web` capability falls back to the raw result content 閳?the body is not duplicated into the view). Completed views replace pending views, so mutation tools return a diff result even when it duplicates the call-time snippet; a search and a web retrieval have no `card` call-time analogue (their pending state stays a generic card, since the structured result exists only after `execute`).
 
 `ToolCallKind` (`'read' | 'edit' | 'delete' | 'move' | 'search' | 'execute' | 'fetch' | 'other'`) picks an icon on a generic card. `FileLocation` (`{ path, line? }`), `FileDiff` (`{ path, oldText, newText }`), and `ReadFileLine` (`{ number, text }`, one 1-based numbered line of a read window) are the shared file-card vocabulary. The design is pinned in [the render-intent-union Agent Note](../../.agents/notes/implemented/architecture/2026-07-02-tool-render-intent-union.md); host/client runtimes project this neutral vocabulary into their own views.
 
 The full presentation field docs live in [`packages/core/tools/src/presentation.ts`](../../packages/core/tools/src/presentation.ts). The `bash` schema and executor are on [shell.md](shell.md); generic background controls are on [jobs.md](jobs.md).
 
-<!-- BEGIN GENERATED cordis-surface (gen-cordis-catalog.ts) — do not edit between markers -->
+<!-- BEGIN GENERATED cordis-surface (gen-cordis-catalog.ts) 閳?do not edit between markers -->
 
 <a id="cordis-surface"></a>
 
 ## Cordis API
 
-Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnpm run verify-cordis-catalog` in doc-sync; regenerate with `pnpm run gen-cordis-catalog`) — the language sides differ only in locale-specific paired document paths. Signature blocks use a `ts cordis-catalog` fence and keep the original source JSDoc; dispatch modes are defined in the [primer](../cordis-primer.md#dispatch-modes), and the framework-inherited `ctx` API lives in [cordis-api/inherited.md](../cordis-api/inherited.md).
+Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnpm run verify-cordis-catalog` in doc-sync; regenerate with `pnpm run gen-cordis-catalog`) 閳?the language sides differ only in locale-specific paired document paths. Signature blocks use a `ts cordis-catalog` fence and keep the original source JSDoc; dispatch modes are defined in the [primer](../cordis-primer.md#dispatch-modes), and the framework-inherited `ctx` API lives in [cordis-api/inherited.md](../cordis-api/inherited.md).
 
 <a id="ctxtools--toolruntime"></a>
 
-### `ctx.tools` — `ToolRuntime`
+### `ctx.tools` 閳?`ToolRuntime`
 
 Tool registry and execution pipeline. Scoped registrations shadow globals; one visibility resolver feeds presentation, lookup, and dispatch.
 
@@ -579,14 +581,14 @@ Source: [`packages/core/tools/src/index.ts`](../../packages/core/tools/src/index
 
 <a id="toolschange--emit"></a>
 
-#### `tools/change` — emit
+#### `tools/change` 閳?emit
 
-A tool was registered or unregistered, or a scoped restriction changed (the available tool set changed — possibly for one scope only). An UNFILTERED registry-subject notification, deliberately not scope-filtered dispatch: a global change concerns every agent's next assembly, so a scoped listener subscribing here sees every change, not just its own scope's.
+A tool was registered or unregistered, or a scoped restriction changed (the available tool set changed 閳?possibly for one scope only). An UNFILTERED registry-subject notification, deliberately not scope-filtered dispatch: a global change concerns every agent's next assembly, so a scoped listener subscribing here sees every change, not just its own scope's.
 
 ```ts cordis-catalog
 /**
  * A tool was registered or unregistered, or a scoped restriction changed
- * (the available tool set changed — possibly for one scope only). An
+ * (the available tool set changed 閳?possibly for one scope only). An
  * UNFILTERED registry-subject notification, deliberately not scope-filtered
  * dispatch: a global change concerns every agent's next assembly, so a
  * scoped listener subscribing here sees every change, not just its own
@@ -600,7 +602,7 @@ Source: [`packages/core/tools/src/index.ts`](../../packages/core/tools/src/index
 
 <a id="toolsexecute--waterfall"></a>
 
-#### `tools/execute` — waterfall
+#### `tools/execute` 閳?waterfall
 
 Around-dispatch waterfall for timeout, retry, or metrics. `next()` returns a normalized result; wrappers may change only `exec.signal`, while call identity remains immutable. The registry re-fuses the original caller signal before the body, so replacement cannot detach caller cancellation; wrappers must still restore their signal and reach quiescence. Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent's calls.
 
@@ -624,7 +626,7 @@ Source: [`packages/core/tools/src/index.ts`](../../packages/core/tools/src/index
 
 <a id="toolspost-execute--waterfall"></a>
 
-#### `tools/post-execute` — waterfall
+#### `tools/post-execute` 閳?waterfall
 
 Accept, replace, enrich, or block a normalized dispatch result. `next()` accepts it unchanged; thrown tools still reach this waterfall as errors. Async listeners must observe `exec.signal`; after they settle, caller cancellation replaces only a successful accepted outcome with the code selected by whether the tool body was invoked. Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent's calls.
 
@@ -649,7 +651,7 @@ Source: [`packages/core/tools/src/index.ts`](../../packages/core/tools/src/index
 
 <a id="toolspre-execute--waterfall"></a>
 
-#### `tools/pre-execute` — waterfall
+#### `tools/pre-execute` 閳?waterfall
 
 Allow, deny, or ask before dispatch. `next()` delegates to allow; missing approval support turns `ask` into denial. Async gates must observe `exec.signal`; the registry rechecks cancellation after they settle but never abandons their promise. Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent's calls.
 
@@ -672,9 +674,9 @@ Source: [`packages/core/tools/src/index.ts`](../../packages/core/tools/src/index
 
 <a id="toolsptc-dispatch-log--waterfall"></a>
 
-#### `tools/ptc-dispatch-log` — waterfall
+#### `tools/ptc-dispatch-log` 閳?waterfall
 
-Allow a listener to replace content in the DURABLE LOG COPY of one `run_code` sub-dispatch outcome before the bridge appends its `tool/code-dispatch` event. `next()` keeps the content unchanged; a listener may return replacement blocks (e.g. the spill policy's preview + locator for an oversized text result). Only the logged copy is affected — the program already received the complete value, and the model sees neither. A throwing listener is contained: the bridge falls back to logging the original settled content. Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent's dispatches.
+Allow a listener to replace content in the DURABLE LOG COPY of one `run_code` sub-dispatch outcome before the bridge appends its `tool/code-dispatch` event. `next()` keeps the content unchanged; a listener may return replacement blocks (e.g. the spill policy's preview + locator for an oversized text result). Only the logged copy is affected 閳?the program already received the complete value, and the model sees neither. A throwing listener is contained: the bridge falls back to logging the original settled content. Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent's dispatches.
 
 ```ts cordis-catalog
 /**
@@ -683,7 +685,7 @@ Allow a listener to replace content in the DURABLE LOG COPY of one `run_code` su
  * `tool/code-dispatch` event. `next()` keeps the
  * content unchanged; a listener may return replacement blocks (e.g. the
  * spill policy's preview + locator for an oversized text result). Only the
- * logged copy is affected — the program already received the complete
+ * logged copy is affected 閳?the program already received the complete
  * value, and the model sees neither. A throwing listener is contained:
  * the bridge falls back to logging the original settled content.
  * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent's dispatches.
@@ -693,13 +695,13 @@ Allow a listener to replace content in the DURABLE LOG COPY of one `run_code` su
 'tools/ptc-dispatch-log'(this: Scoped<ToolRuntime>, dispatch: PtcDispatchLog, next: () => Promise<ContentBlock[]>): Promise<ContentBlock[]>
 ```
 
-Types: [ContentBlock](llm-streaming.md) · [Scoped](scope.md)
+Types: [ContentBlock](llm-streaming.md) 璺?[Scoped](scope.md)
 
 Source: [`packages/core/tools/src/index.ts`](../../packages/core/tools/src/index.ts)
 
 <a id="toolsresult--emit"></a>
 
-#### `tools/result` — emit
+#### `tools/result` 閳?emit
 
 Observe the frozen, lossless-JSON final outcome. Listener failures are contained. Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): keyed by `exec.agent`.
 

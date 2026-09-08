@@ -2,7 +2,7 @@
 
 English | [中文](permission-presets.zh.md)
 
-The permission-preset layer of [dsh-permission-presets](../../packages/interaction/permission-presets) (`ctx.permissionPresets`, `PermissionPresetService`) bundles the two independent enforcement knobs — [sandbox mode](sandbox.md) (`sandbox/mode`) and [approval policy](approval.md) (`approval/policy`) — into named presets a client offers as one Permissions selector. It is one optional capability, not part of the agent-loop spine, and it owns no enforcement: execution, prompt narration, and replay keep reading their knob folds, and a preset switch only records intent and writes through each knob's canonical setter. The [package README](../../packages/interaction/permission-presets/README.md) owns composition status and limitations; the [sandbox switching design](../../.agents/notes/implemented/feature/2026-07-06-sandbox.md) owns the rationale.
+The permission-preset layer of [dsh-permission-presets](../../packages/interaction/permission-presets) (`ctx.permissionPresets`, `PermissionPresetService`) bundles the two independent enforcement knobs 鈥?[sandbox mode](sandbox.md) (`sandbox/mode`) and [approval policy](approval.md) (`approval/policy`) 鈥?into named presets a client offers as one Permissions selector. It is one optional capability, not part of the agent-loop spine. Knob switches own no enforcement: execution, prompt narration, and replay keep reading their knob folds, and a preset switch only records intent and writes through each knob's canonical setter; the one exception is an optional preset capability ceiling, denied through a monotonic tool guard. The [package README](../../packages/interaction/permission-presets/README.md) owns composition status and limitations; the [sandbox switching design](../../.agents/notes/implemented/feature/2026-07-06-sandbox.md) owns the rationale.
 
 Source: [`packages/interaction/permission-presets/src/index.ts`](../../packages/interaction/permission-presets/src/index.ts)
 
@@ -17,6 +17,13 @@ interface PresetSpec {
   sandbox: SandboxMode
   /** The `approval/policy` value the preset writes through. */
   approval: ApprovalPolicy
+  /**
+   * Optional maximum tool `risk` this preset executes: declared tools at or
+   * below the ceiling run, tools above it are denied, and tools without
+   * capability metadata are denied while a ceiling is set. Unset presets
+   * impose no ceiling.
+   */
+  capabilityRisk?: CapabilityRisk
   /** The display label a client shows for this preset; the raw table key when omitted. */
   name?: string
   /** One user-facing sentence on what the preset means; omitted when not configured. */
@@ -28,7 +35,7 @@ interface PresetSpec {
 /** The {@link PermissionPresetService} config: preset table and composition default. */
 interface Config {
   /**
-   * The preset table: name → knob bundle. Defaults to `workspace-write`
+   * The preset table: name 鈫?knob bundle. Defaults to `workspace-write`
    * (workspace-write + ask) and `danger-full-access` (danger-full-access +
    * never). The name `custom` is reserved for the derived not-a-preset state.
    */
@@ -42,6 +49,18 @@ interface Config {
 ```
 
 The service requires a confining `ctx.shell` executor and `ctx.approval`, and misconfiguration fails at plugin load: a table entry named `custom` throws (the name is reserved for the derived not-a-preset state), and composing over a bash executor that does not confine (no `sandboxMode` capability fact) throws, because presets bundle a sandbox mode.
+
+## The capability ceiling
+
+A preset may set `capabilityRisk`, the maximum tool `risk` it executes. The service registers one monotonic guard on the tools runtime (through `ctx.inject(['tools'])`); while a ceilinged preset is effective, the guard denies declared tools whose `capability.risk` ranks above the ceiling and tools without capability metadata (fail closed). Agent-less executions carry no session, hence no preset selection, hence no ceiling. The guard runs after the extensible `tools/pre-execute` waterfall, so an allow decision cannot bypass it; presets without a ceiling deny nothing.
+
+```ts type-equiv
+/**
+ * The closed tool risk vocabulary a preset ceiling compares, mirroring the
+ * `capability.risk` values of `@deepseek-ai/dsh-tools`.
+ */
+type CapabilityRisk = 'low' | 'medium' | 'high' | 'prohibited'
+```
 
 ## Current preset and the derived `custom`
 
@@ -63,21 +82,21 @@ interface PresetOption {
 
 ## Switching and the `permission/preset` event
 
-`set(session, name)` resolves the preset (unknown names throw), appends a log-only `permission/preset` event unless `name` is already the effective preset, then writes each knob through its own setter — `setSandboxMode` from [dsh-sandbox-policy](../../packages/sandbox/sandbox-policy) and `setApprovalPolicy` from [dsh-user-approval](../../packages/interaction/user-approval) — only when that knob's effective value changes. The selection event precedes the knob events in the same turn, and re-selecting the effective preset appends nothing.
+`set(session, name)` resolves the preset (unknown names throw), appends a log-only `permission/preset` event unless `name` is already the effective preset, then writes each knob through its own setter 鈥?`setSandboxMode` from [dsh-sandbox-policy](../../packages/sandbox/sandbox-policy) and `setApprovalPolicy` from [dsh-user-approval](../../packages/interaction/user-approval) 鈥?only when that knob's effective value changes. The selection event precedes the knob events in the same turn, and re-selecting the effective preset appends nothing.
 
 `permission/preset` is durable, log-only user intent: it stays out of the model transcript (the knob events own the model-visible consequences through their consumers), and it exists so `current()` can preserve WHICH preset the user chose when two presets share a bundle. The `permissions` projection folds that selection with both knob events and retains the `session/end-seed` boundary used to distinguish a restored empty seed from a fresh session; replay needs no catch-up state or raw-log rescan. The complete event declaration is in the [persistence log event catalog](../persistence-catalog.md); the method signatures are in the generated [service catalog](#ctxpermissionpresets--permissionpresetservice).
 
-<!-- BEGIN GENERATED cordis-surface (gen-cordis-catalog.ts) — do not edit between markers -->
+<!-- BEGIN GENERATED cordis-surface (gen-cordis-catalog.ts) 鈥?do not edit between markers -->
 
 <a id="cordis-surface"></a>
 
 ## Cordis API
 
-Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnpm run verify-cordis-catalog` in doc-sync; regenerate with `pnpm run gen-cordis-catalog`) — the language sides differ only in locale-specific paired document paths. Signature blocks use a `ts cordis-catalog` fence and keep the original source JSDoc; dispatch modes are defined in the [primer](../cordis-primer.md#dispatch-modes), and the framework-inherited `ctx` API lives in [cordis-api/inherited.md](../cordis-api/inherited.md).
+Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnpm run verify-cordis-catalog` in doc-sync; regenerate with `pnpm run gen-cordis-catalog`) 鈥?the language sides differ only in locale-specific paired document paths. Signature blocks use a `ts cordis-catalog` fence and keep the original source JSDoc; dispatch modes are defined in the [primer](../cordis-primer.md#dispatch-modes), and the framework-inherited `ctx` API lives in [cordis-api/inherited.md](../cordis-api/inherited.md).
 
 <a id="ctxpermissionpresets--permissionpresetservice"></a>
 
-### `ctx.permissionPresets` — `PermissionPresetService`
+### `ctx.permissionPresets` 鈥?`PermissionPresetService`
 
 Owns the deployment's permission presets and their write path. Requires a confining `ctx.shell` executor and `ctx.approval`; unmatched knob values are reported as CUSTOM_PRESET, not an error.
 

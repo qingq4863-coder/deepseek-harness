@@ -1882,6 +1882,11 @@
       "source": "packages/interaction/permission-presets/src/index.ts"
     },
     {
+      "doc": "docs/subsystems/permission-presets.md",
+      "symbol": "CapabilityRisk",
+      "source": "packages/interaction/permission-presets/src/index.ts"
+    },
+    {
       "doc": "docs/subsystems/session-projection.md",
       "symbol": "ProjectionDefinition",
       "source": "packages/session/session-projection/src/index.ts"

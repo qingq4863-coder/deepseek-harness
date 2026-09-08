@@ -1,6 +1,6 @@
-// Proves `allowParallelInProgress` is real configurability and not a constant:
-// the flag is set in a cordis.yml booted through the real Loader, and both faces
-// it controls — the model-facing description and the accepted input — follow it.
+// Proves the todo policy flags are real configurability and not constants: each
+// flag is set in a cordis.yml booted through the real Loader, and both faces it
+// controls 閳?the model-facing description and the accepted input 閳?follow it.
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -96,7 +96,7 @@ const PARALLEL_TODOS = [
 
 describe('tool-todo real Loader composition through cordis.yml', () => {
   it('allowParallelInProgress: false narrows the description and rejects a parallel write', async () => {
-    const ctx = await boot(['    allowParallelInProgress: false'])
+    const ctx = await boot(['    allowParallelInProgress: false', '    requireCompletedEvidence: false'])
     const description = ctx.tools.schemas().find(s => s.name === 'todo_write')?.description ?? ''
     expect(description).toContain('Keep AT MOST ONE todo `in_progress`')
     expect(description).not.toContain('several at once')
@@ -115,7 +115,7 @@ describe('tool-todo real Loader composition through cordis.yml', () => {
   }, 30_000)
 
   it('allowParallelInProgress: true permits a parallel write end to end', async () => {
-    const ctx = await boot(['    allowParallelInProgress: true'])
+    const ctx = await boot(['    allowParallelInProgress: true', '    requireCompletedEvidence: false'])
     const description = ctx.tools.schemas().find(s => s.name === 'todo_write')?.description ?? ''
     expect(description).toContain('several at once when work genuinely runs in parallel')
 
@@ -131,10 +131,40 @@ describe('tool-todo real Loader composition through cordis.yml', () => {
     expect(owner.session.snapshotEvents().findLast(e => e.type === 'todo/write')?.data.todos).toEqual(PARALLEL_TODOS)
   }, 30_000)
 
+  it('requireCompletedEvidence: true gates a completed write on evidence', async () => {
+    const ctx = await boot(['    allowParallelInProgress: true', '    requireCompletedEvidence: true'])
+    const description = ctx.tools.schemas().find(s => s.name === 'todo_write')?.description ?? ''
+    expect(description).toContain('MUST carry `evidence`')
+
+    const owner = agent(ctx)
+    const rejected = await ctx.tools.execute({
+      signal: new AbortController().signal,
+      callId: ToolCallId('evidence-missing'),
+      name: 'todo_write',
+      arguments: { todos: [{ content: 'claimed done', status: 'completed' }] },
+      agent: owner,
+    })
+    expect(rejected.isError).toBe(true)
+    expect(resultText(rejected)).toContain('a `completed` task must carry `evidence`')
+    expect(owner.session.snapshotEvents().some(e => e.type === 'todo/write')).toBe(false)
+
+    const accepted = await ctx.tools.execute({
+      signal: new AbortController().signal,
+      callId: ToolCallId('evidence-present'),
+      name: 'todo_write',
+      arguments: { todos: [{ content: 'gate checked', status: 'completed', evidence: 'suite green' }] },
+      agent: owner,
+    })
+    expect(accepted.isError).toBe(false)
+    expect(owner.session.snapshotEvents().findLast(e => e.type === 'todo/write')?.data.todos).toEqual([
+      { content: 'gate checked', status: 'completed', evidence: 'suite green' },
+    ])
+  }, 30_000)
+
   it.each([
-    { label: 'is omitted', configLines: [], failure: '$.allowParallelInProgress missing required value' },
-    { label: 'is not boolean', configLines: ['    allowParallelInProgress: "no"'], failure: '$.allowParallelInProgress expected boolean' },
-  ])('fails loading when allowParallelInProgress $label', async ({ configLines, failure }) => {
+    { label: 'is omitted', configLines: ['    allowParallelInProgress: true'], failure: '$.requireCompletedEvidence missing required value' },
+    { label: 'is not boolean', configLines: ['    allowParallelInProgress: true', '    requireCompletedEvidence: "no"'], failure: '$.requireCompletedEvidence expected boolean' },
+  ])('fails loading when requireCompletedEvidence $label', async ({ configLines, failure }) => {
     // The policy is self-contained, so misconfiguration fails at load: the
     // entry's apply rejects and boot never reaches a running tool.
     await expect(boot(configLines)).rejects.toThrow(failure)

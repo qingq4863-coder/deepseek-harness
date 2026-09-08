@@ -16,23 +16,23 @@ const testToolSignal = new AbortController().signal
 /**
  * Drives the REAL plugin body: mounts `dsh-tool-todo` on a real `ToolRuntime`
  * and invokes the registered `todo_write` tool through `ctx.tools.execute`,
- * with a fake parent Agent carrying a real `Session` — so the append the tool
+ * with a fake parent Agent carrying a real `Session` 閳?so the append the tool
  * makes is observable on a genuine session log (only the agent wrapper is a
  * stand-in; the session and the tool are the shipping code).
  */
 
-/** A parent Agent backed by a real Session — the tool reads `agent.session`. */
+/** A parent Agent backed by a real Session 閳?the tool reads `agent.session`. */
 function agentWithSession(id = 'parent-1'): Agent & { session: Session } {
   const session = Session.create(SessionId(id))
   return { id: SessionId(id), session } as unknown as Agent & { session: Session }
 }
 
-async function setup(allowParallelInProgress: boolean): Promise<Context> {
+async function setup(allowParallelInProgress: boolean, requireCompletedEvidence = false): Promise<Context> {
   const ctx = new Context()
   await ctx.plugin(SystemPrompt)
   await ctx.plugin(ToolRuntime)
   await ctx.plugin(SessionProjectionRegistry)
-  await ctx.plugin(tool, { allowParallelInProgress })
+  await ctx.plugin(tool, { allowParallelInProgress, requireCompletedEvidence })
   return ctx
 }
 
@@ -62,7 +62,7 @@ describe('dsh-tool-todo', () => {
     const todos = props.todos as { type: string; items?: { properties?: Record<string, { type: string; enum?: string[] }> } }
     expect(todos.type).toBe('array')
     const itemProps = todos.items?.properties ?? {}
-    expect(Object.keys(itemProps).sort()).toEqual(['content', 'status'])
+    expect(Object.keys(itemProps).sort()).toEqual(['content', 'evidence', 'status'])
     expect(itemProps.status?.enum).toEqual(['pending', 'in_progress', 'completed'])
   })
 
@@ -94,6 +94,64 @@ describe('dsh-tool-todo', () => {
 
     const event = agent.session.snapshotEvents().findLast(e => e.type === 'todo/write')!
     expect(event.data.todos).toEqual([{ content: 'plan the work', status: 'pending' }])
+  })
+
+  it('carries evidence on a completed todo through the result and the log', async () => {
+    const ctx = await setup(true)
+    const agent = agentWithSession('evidence')
+    const result = await callTodo(ctx, { todos: [
+      { content: 'ship', status: 'completed', evidence: 'pnpm test: 28 passed' },
+    ] }, { agent })
+    expect(result.isError).toBe(false)
+    expect(result.value).toEqual({
+      todos: [{ content: 'ship', status: 'completed', evidence: 'pnpm test: 28 passed' }],
+      counts: { pending: 0, inProgress: 0, completed: 1 },
+    })
+    const event = agent.session.snapshotEvents().findLast(e => e.type === 'todo/write')!
+    expect(event.data.todos).toEqual([
+      { content: 'ship', status: 'completed', evidence: 'pnpm test: 28 passed' },
+    ])
+  })
+
+  it('rejects evidence on a todo that is not completed', async () => {
+    const ctx = await setup(true)
+    const result = await callTodo(ctx, { todos: [
+      { content: 'wip', status: 'in_progress', evidence: 'too early' },
+    ] })
+    expect(result.isError).toBe(true)
+    expect(text(result)).toContain('`evidence` is only valid on completed items')
+  })
+
+  it('rejects an evidence line that is empty after trimming', async () => {
+    const ctx = await setup(true)
+    const result = await callTodo(ctx, { todos: [
+      { content: 'done', status: 'completed', evidence: '   ' },
+    ] })
+    expect(result.isError).toBe(true)
+    expect(text(result)).toContain('`evidence` must be a non-empty string')
+  })
+
+  it('rejects a completed todo without evidence when the deployment requires it', async () => {
+    const ctx = await setup(true, true)
+    const schema = ctx.tools.schemas().find(s => s.name === 'todo_write')
+    expect(schema?.description).toContain('MUST carry `evidence`')
+
+    const result = await callTodo(ctx, { todos: [{ content: 'claimed done', status: 'completed' }] })
+    expect(result.isError).toBe(true)
+    expect(text(result)).toContain('a `completed` task must carry `evidence`')
+  })
+
+  it('accepts a completed todo with evidence when the deployment requires it', async () => {
+    const ctx = await setup(true, true)
+    const agent = agentWithSession('gated')
+    const result = await callTodo(ctx, { todos: [
+      { content: 'gate checked', status: 'completed', evidence: 'suite green' },
+    ] }, { agent })
+    expect(result.isError).toBe(false)
+    const event = agent.session.snapshotEvents().findLast(e => e.type === 'todo/write')!
+    expect(event.data.todos).toEqual([
+      { content: 'gate checked', status: 'completed', evidence: 'suite green' },
+    ])
   })
 
   it('replaces the list on a second call (last-write-wins on the log)', async () => {
@@ -216,7 +274,7 @@ describe('dsh-tool-todo', () => {
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(ToolRuntime)
     await ctx.plugin(SessionProjectionRegistry)
-    const fiber = await ctx.plugin(tool, { allowParallelInProgress: true })
+    const fiber = await ctx.plugin(tool, { allowParallelInProgress: true, requireCompletedEvidence: false })
     expect(ctx.tools.schemas().some(s => s.name === 'todo_write')).toBe(true)
     await fiber.dispose()
     expect(ctx.tools.schemas().some(s => s.name === 'todo_write')).toBe(false)

@@ -60,6 +60,8 @@ import * as ToolSessionQuery from '@deepseek-ai/dsh-tool-session-query'
 import * as ToolTasks from '@deepseek-ai/dsh-tool-jobs'
 import type TeamService from '@deepseek-ai/dsh-experimental-agent-team'
 import * as ToolTeam from '@deepseek-ai/dsh-experimental-tool-agent-team'
+import * as ToolEnvInspect from '@deepseek-ai/dsh-experimental-tool-env-inspect'
+import ApprovalService from '@deepseek-ai/dsh-user-approval'
 import * as ToolTodo from '@deepseek-ai/dsh-tool-todo'
 import * as ToolSubagent from '@deepseek-ai/dsh-tool-subagent'
 import { registerListSubagentModels } from '../packages/subagent/tool-subagent/src/list-models.ts'
@@ -552,10 +554,26 @@ const TOOL_PACKAGES: ToolPackage[] = [
     requires: ['ctx.tools', 'owning Agent session'],
     writes: ['tool/call', 'todo/write', 'tool/result'],
     async mount(ctx) {
-      await ctx.plugin(ToolTodo, { allowParallelInProgress: true })
+      await ctx.plugin(ToolTodo, { allowParallelInProgress: true, requireCompletedEvidence: false })
     },
     note:
-      'todo_write is session-owned state; UIs render the latest todo/write event as a checklist. `allowParallelInProgress` is required with no default, so the catalog states its choice: `true`, whose description invites several `in_progress` items. A deployment choosing `false` receives the same tool with a description asking for exactly one active task.',
+      'todo_write is session-owned state; UIs render the latest todo/write event as a checklist. `allowParallelInProgress` is required with no default, so the catalog states its choice: `true`, whose description invites several `in_progress` items. A deployment choosing `false` receives the same tool with a description asking for exactly one active task. `requireCompletedEvidence` is also required with no default; the catalog states `false`, whose description invites evidence on completed items — a deployment choosing `true` gets a description that demands it and a tool that rejects a completed item without evidence.',
+  },
+  {
+    pkg: '@deepseek-ai/dsh-experimental-tool-env-inspect',
+    dir: 'tool-env-inspect',
+    source: 'packages/experimental/tool-env-inspect/src/index.ts',
+    requires: ['ctx.tools', 'ctx.approval', 'ctx.subprocess'],
+    writes: ['tool/call', 'tool/result'],
+    async mount(ctx) {
+      await ctx.plugin(SessionStore)
+      await ctx.plugin(ApprovalService)
+      await ctx.plugin(LocalSubprocessRuntime)
+      ctx.on('approval/request', () => Promise.resolve('allowed-once'))
+      await ctx.plugin(ToolEnvInspect, { maxCommands: 8, versionMaxCommands: 4, versionTimeoutMs: 15000 })
+    },
+    note:
+      'env_inspect and env_version are the environment probe of the installer plan: command names in, executable paths on PATH out, and optionally one approval-gated, time-limited --version run per approved name. The package is experimental and excluded from official releases, and no shipped profile mounts it; the cataloged bounds are the catalog\'s own choices of the required config.',
   },
   {
     pkg: '@deepseek-ai/dsh-tool-workflow',

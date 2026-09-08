@@ -23,8 +23,10 @@ interface ToolOutputDefinition {
 ```
 
 ```ts type-equiv
-/** A registered tool: its schema plus the execution function. */
+/** A registered tool: its schema plus execution function and optional descriptive metadata. */
 interface ToolDefinition extends ToolSchema {
+  /** Descriptive capability metadata; it never grants or changes authorization. */
+  readonly capability?: ToolCapabilityMetadata
   /** Mandatory canonical output declaration. */
   readonly output: ToolOutputDefinition
   /**
@@ -53,7 +55,7 @@ interface ToolDefinition extends ToolSchema {
   /**
    * Cooperative tool-call timeout budget in milliseconds. Omit for no deadline.
    * Enforced by `@deepseek-ai/dsh-tool-call-timeout-policy` (a `tools/execute` wrapper); it
-   * is NEVER sent to the model — `schemas()` whitelists only name/description/
+   * is NEVER sent to the model 閳?`schemas()` whitelists only name/description/
    * parameters. Declaring it asserts this tool forwards `exec.signal` to a
    * cooperative implementation that can reach quiescence when the signal aborts.
    */
@@ -74,7 +76,7 @@ interface ToolDefinition extends ToolSchema {
   isConcurrencySafe?(args: unknown): boolean
   /**
    * Optional: how to present the PENDING state of one call in a UI, derived from
-   * the call's `args` (parsed arguments, `unknown` — the tool validates/narrows
+   * the call's `args` (parsed arguments, `unknown` 閳?the tool validates/narrows
    * its own input). Returns a {@link ToolCallView} (a `card`-tagged render intent),
    * or `undefined` (or omit the method) to fall back to a generic presentation
    * (title = tool name, raw args as input). Pure and side-effect-free: a UI may
@@ -200,7 +202,7 @@ interface ToolExecutionInput {
    * the outer `run_code` outcome without receiving its live mutable execution.
    * The token also marks the call as a transport sub-dispatch rather than a
    * model-direct call: under `mode: 'ptc'`, only calls WITH a parent may
-   * execute a native tool name — a model-direct call (no parent) is denied as
+   * execute a native tool name 閳?a model-direct call (no parent) is denied as
    * `UNKNOWN_TOOL` before the policy pipeline. See {@link ToolRuntime.execute}.
    */
   readonly parent?: ToolExecutionToken
@@ -215,15 +217,15 @@ interface ToolExecutionInput {
 /**
  * Runtime context handed to a tool implementation after the registry has
  * accepted a {@link ToolExecution}. {@link deferContext} attaches context to
- * this execution's own result — a composite tool ferries nested-dispatch
+ * this execution's own result 閳?a composite tool ferries nested-dispatch
  * context back to the outer result, and a leaf tool may mint a fresh
  * plugin-sourced instruction; the loop appends it only after the
  * `tool/result`.
  */
 interface ToolRunContext extends ToolExecution {
   /**
-   * Defer one context — typically a nested-dispatch context ferried by a
-   * composite tool, or a fresh plugin-sourced instruction — until this tool's
+   * Defer one context 閳?typically a nested-dispatch context ferried by a
+   * composite tool, or a fresh plugin-sourced instruction 閳?until this tool's
    * final result reaches the agent loop. Contexts retain their individual
    * source and metadata and are emitted in call order.
    */
@@ -260,7 +262,7 @@ PTC mode 的桥接层还会把每个已结算的子分派暴露给 `tools/ptc-di
  * `tools/ptc-dispatch-log` waterfall: the parent execution (session owner,
  * outer call identity), the sub-call identity, and the outcome whose durable
  * copy a listener may reshape. `content` is the RENDERED result projection
- * (what a native `tool/result` would carry) — the program itself received
+ * (what a native `tool/result` would carry) 閳?the program itself received
  * the structured `value` (or just the error message on failure); only the
  * `tool/code-dispatch` event's copy changes.
  */
@@ -467,17 +469,17 @@ type ObjectJsonSchema = JsonSchemaNode & { type: 'object' }
 
 完整的展示字段文档见 [`packages/core/tools/src/presentation.ts`](../../packages/core/tools/src/presentation.ts)。`bash` schema 与执行器见 [shell.md](shell.zh.md)；通用后台控制见 [jobs.md](jobs.zh.md)。
 
-<!-- BEGIN GENERATED cordis-surface (gen-cordis-catalog.ts) — do not edit between markers -->
+<!-- BEGIN GENERATED cordis-surface (gen-cordis-catalog.ts) 閳?do not edit between markers -->
 
 <a id="cordis-surface"></a>
 
 ## Cordis API
 
-Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnpm run verify-cordis-catalog` in doc-sync; regenerate with `pnpm run gen-cordis-catalog`) — the language sides differ only in locale-specific paired document paths. Signature blocks use a `ts cordis-catalog` fence and keep the original source JSDoc; dispatch modes are defined in the [primer](../cordis-primer.zh.md#dispatch-modes), and the framework-inherited `ctx` API lives in [cordis-api/inherited.md](../cordis-api/inherited.md).
+Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnpm run verify-cordis-catalog` in doc-sync; regenerate with `pnpm run gen-cordis-catalog`) 閳?the language sides differ only in locale-specific paired document paths. Signature blocks use a `ts cordis-catalog` fence and keep the original source JSDoc; dispatch modes are defined in the [primer](../cordis-primer.zh.md#dispatch-modes), and the framework-inherited `ctx` API lives in [cordis-api/inherited.md](../cordis-api/inherited.md).
 
 <a id="ctxtools--toolruntime"></a>
 
-### `ctx.tools` — `ToolRuntime`
+### `ctx.tools` 閳?`ToolRuntime`
 
 Tool registry and execution pipeline. Scoped registrations shadow globals; one visibility resolver feeds presentation, lookup, and dispatch.
 
@@ -579,14 +581,14 @@ Source: [`packages/core/tools/src/index.ts`](../../packages/core/tools/src/index
 
 <a id="toolschange--emit"></a>
 
-#### `tools/change` — emit
+#### `tools/change` 閳?emit
 
-A tool was registered or unregistered, or a scoped restriction changed (the available tool set changed — possibly for one scope only). An UNFILTERED registry-subject notification, deliberately not scope-filtered dispatch: a global change concerns every agent's next assembly, so a scoped listener subscribing here sees every change, not just its own scope's.
+A tool was registered or unregistered, or a scoped restriction changed (the available tool set changed 閳?possibly for one scope only). An UNFILTERED registry-subject notification, deliberately not scope-filtered dispatch: a global change concerns every agent's next assembly, so a scoped listener subscribing here sees every change, not just its own scope's.
 
 ```ts cordis-catalog
 /**
  * A tool was registered or unregistered, or a scoped restriction changed
- * (the available tool set changed — possibly for one scope only). An
+ * (the available tool set changed 閳?possibly for one scope only). An
  * UNFILTERED registry-subject notification, deliberately not scope-filtered
  * dispatch: a global change concerns every agent's next assembly, so a
  * scoped listener subscribing here sees every change, not just its own
@@ -600,7 +602,7 @@ Source: [`packages/core/tools/src/index.ts`](../../packages/core/tools/src/index
 
 <a id="toolsexecute--waterfall"></a>
 
-#### `tools/execute` — waterfall
+#### `tools/execute` 閳?waterfall
 
 Around-dispatch waterfall for timeout, retry, or metrics. `next()` returns a normalized result; wrappers may change only `exec.signal`, while call identity remains immutable. The registry re-fuses the original caller signal before the body, so replacement cannot detach caller cancellation; wrappers must still restore their signal and reach quiescence. Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent's calls.
 
@@ -624,7 +626,7 @@ Source: [`packages/core/tools/src/index.ts`](../../packages/core/tools/src/index
 
 <a id="toolspost-execute--waterfall"></a>
 
-#### `tools/post-execute` — waterfall
+#### `tools/post-execute` 閳?waterfall
 
 Accept, replace, enrich, or block a normalized dispatch result. `next()` accepts it unchanged; thrown tools still reach this waterfall as errors. Async listeners must observe `exec.signal`; after they settle, caller cancellation replaces only a successful accepted outcome with the code selected by whether the tool body was invoked. Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent's calls.
 
@@ -649,7 +651,7 @@ Source: [`packages/core/tools/src/index.ts`](../../packages/core/tools/src/index
 
 <a id="toolspre-execute--waterfall"></a>
 
-#### `tools/pre-execute` — waterfall
+#### `tools/pre-execute` 閳?waterfall
 
 Allow, deny, or ask before dispatch. `next()` delegates to allow; missing approval support turns `ask` into denial. Async gates must observe `exec.signal`; the registry rechecks cancellation after they settle but never abandons their promise. Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent's calls.
 
@@ -672,9 +674,9 @@ Source: [`packages/core/tools/src/index.ts`](../../packages/core/tools/src/index
 
 <a id="toolsptc-dispatch-log--waterfall"></a>
 
-#### `tools/ptc-dispatch-log` — waterfall
+#### `tools/ptc-dispatch-log` 閳?waterfall
 
-Allow a listener to replace content in the DURABLE LOG COPY of one `run_code` sub-dispatch outcome before the bridge appends its `tool/code-dispatch` event. `next()` keeps the content unchanged; a listener may return replacement blocks (e.g. the spill policy's preview + locator for an oversized text result). Only the logged copy is affected — the program already received the complete value, and the model sees neither. A throwing listener is contained: the bridge falls back to logging the original settled content. Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent's dispatches.
+Allow a listener to replace content in the DURABLE LOG COPY of one `run_code` sub-dispatch outcome before the bridge appends its `tool/code-dispatch` event. `next()` keeps the content unchanged; a listener may return replacement blocks (e.g. the spill policy's preview + locator for an oversized text result). Only the logged copy is affected 閳?the program already received the complete value, and the model sees neither. A throwing listener is contained: the bridge falls back to logging the original settled content. Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent's dispatches.
 
 ```ts cordis-catalog
 /**
@@ -683,7 +685,7 @@ Allow a listener to replace content in the DURABLE LOG COPY of one `run_code` su
  * `tool/code-dispatch` event. `next()` keeps the
  * content unchanged; a listener may return replacement blocks (e.g. the
  * spill policy's preview + locator for an oversized text result). Only the
- * logged copy is affected — the program already received the complete
+ * logged copy is affected 閳?the program already received the complete
  * value, and the model sees neither. A throwing listener is contained:
  * the bridge falls back to logging the original settled content.
  * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent's dispatches.
@@ -693,13 +695,13 @@ Allow a listener to replace content in the DURABLE LOG COPY of one `run_code` su
 'tools/ptc-dispatch-log'(this: Scoped<ToolRuntime>, dispatch: PtcDispatchLog, next: () => Promise<ContentBlock[]>): Promise<ContentBlock[]>
 ```
 
-Types: [ContentBlock](llm-streaming.zh.md) · [Scoped](scope.zh.md)
+Types: [ContentBlock](llm-streaming.zh.md) 璺?[Scoped](scope.zh.md)
 
 Source: [`packages/core/tools/src/index.ts`](../../packages/core/tools/src/index.ts)
 
 <a id="toolsresult--emit"></a>
 
-#### `tools/result` — emit
+#### `tools/result` 閳?emit
 
 Observe the frozen, lossless-JSON final outcome. Listener failures are contained. Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): keyed by `exec.agent`.
 

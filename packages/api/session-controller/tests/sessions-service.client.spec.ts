@@ -498,6 +498,22 @@ describe('binding and stage lifecycle', () => {
     })
   })
 
+  it('reopens a failed live stream when the current session is selected again', async () => {
+    const b = bench()
+    await feedList(b, [{ id: 's1' }])
+    b.svc.open(sid('s1'))
+    await vi.waitFor(() => { expect(b.api.followStarts.map(String)).toEqual(['s1']) })
+
+    b.api.failStreams(new RemoteError('gateway/internal', 'live stream closed', {}))
+    const session = b.svc.binding(sid('s1'))?.session
+    if (session === undefined) throw new Error('expected the selected Session')
+    await vi.waitFor(() => { expect(session.getSnapshot().openState).toBe('error') })
+
+    b.api.onHistory = () => Promise.resolve(ok({ records: [], hasMore: false }))
+    b.svc.open(sid('s1'))
+    await vi.waitFor(() => { expect(b.api.followStarts.map(String)).toEqual(['s1', 's1']) })
+  })
+
   it('startup restore: a persisted selection validated by the first projection opens its window unprompted', async () => {
     const storage = new Map<string, string>([
       ['dsh.sessions.current', JSON.stringify({ sessionId: 's1' })],

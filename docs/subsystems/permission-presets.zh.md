@@ -17,6 +17,13 @@ interface PresetSpec {
   sandbox: SandboxMode
   /** The `approval/policy` value the preset writes through. */
   approval: ApprovalPolicy
+  /**
+   * Optional maximum tool `risk` this preset executes: declared tools at or
+   * below the ceiling run, tools above it are denied, and tools without
+   * capability metadata are denied while a ceiling is set. Unset presets
+   * impose no ceiling.
+   */
+  capabilityRisk?: CapabilityRisk
   /** The display label a client shows for this preset; the raw table key when omitted. */
   name?: string
   /** One user-facing sentence on what the preset means; omitted when not configured. */
@@ -28,7 +35,7 @@ interface PresetSpec {
 /** The {@link PermissionPresetService} config: preset table and composition default. */
 interface Config {
   /**
-   * The preset table: name → knob bundle. Defaults to `workspace-write`
+   * The preset table: name 鈫?knob bundle. Defaults to `workspace-write`
    * (workspace-write + ask) and `danger-full-access` (danger-full-access +
    * never). The name `custom` is reserved for the derived not-a-preset state.
    */
@@ -42,6 +49,18 @@ interface Config {
 ```
 
 该服务要求一个施加隔离的 `ctx.shell` 执行器和 `ctx.approval`，配置错误在插件加载时即失败：名为 `custom` 的表项会抛出异常（该名称保留给派生的「非预设」状态）；在不施加隔离的 bash 执行器（没有 `sandboxMode` 能力事实）之上组合同样抛出异常，因为预设捆绑了一个沙箱模式。
+
+## 能力上限
+
+预设可设置 `capabilityRisk`，即其执行的工具 `risk` 上限。服务会在工具运行时注册一个单调 guard（通过 `ctx.inject(['tools'])`）；当带上限的预设生效时，该 guard 会拒绝 `capability.risk` 高于上限的已声明工具，以及不含能力元数据的工具（默认拒绝）。无 agent 的执行不携带会话，因此没有预设选择，也没有上限。guard 在可扩展的 `tools/pre-execute` waterfall 之后运行，因此 allow 决策无法绕过它；未设置上限的预设不会拒绝任何工具。
+
+```ts type-equiv
+/**
+ * The closed tool risk vocabulary a preset ceiling compares, mirroring the
+ * `capability.risk` values of `@deepseek-ai/dsh-tools`.
+ */
+type CapabilityRisk = 'low' | 'medium' | 'high' | 'prohibited'
+```
 
 ## 当前预设与派生的 `custom`
 
@@ -67,17 +86,17 @@ interface PresetOption {
 
 `permission/preset` 是持久、仅记日志的用户意图：它不进入模型 transcript（文本记录），模型可见的后果由 knob 事件经各自消费方承担；它存在是为了在两个预设共享同一个旋钮组合时，让 `current()` 仍能保住用户选择的究竟是哪一个预设。`permissions` 投影把该选择与两个 knob 事件一同折叠，并保留用于区分空恢复 seed 与新会话的 `session/end-seed` 边界；回放不需要任何追赶状态或原始日志重扫。完整事件声明见[持久化日志事件目录](../persistence-catalog.zh.md)；方法签名见生成的[服务目录](#ctxpermissionpresets--permissionpresetservice)。
 
-<!-- BEGIN GENERATED cordis-surface (gen-cordis-catalog.ts) — do not edit between markers -->
+<!-- BEGIN GENERATED cordis-surface (gen-cordis-catalog.ts) 鈥?do not edit between markers -->
 
 <a id="cordis-surface"></a>
 
 ## Cordis API
 
-Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnpm run verify-cordis-catalog` in doc-sync; regenerate with `pnpm run gen-cordis-catalog`) — the language sides differ only in locale-specific paired document paths. Signature blocks use a `ts cordis-catalog` fence and keep the original source JSDoc; dispatch modes are defined in the [primer](../cordis-primer.zh.md#dispatch-modes), and the framework-inherited `ctx` API lives in [cordis-api/inherited.md](../cordis-api/inherited.md).
+Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnpm run verify-cordis-catalog` in doc-sync; regenerate with `pnpm run gen-cordis-catalog`) 鈥?the language sides differ only in locale-specific paired document paths. Signature blocks use a `ts cordis-catalog` fence and keep the original source JSDoc; dispatch modes are defined in the [primer](../cordis-primer.zh.md#dispatch-modes), and the framework-inherited `ctx` API lives in [cordis-api/inherited.md](../cordis-api/inherited.md).
 
 <a id="ctxpermissionpresets--permissionpresetservice"></a>
 
-### `ctx.permissionPresets` — `PermissionPresetService`
+### `ctx.permissionPresets` 鈥?`PermissionPresetService`
 
 Owns the deployment's permission presets and their write path. Requires a confining `ctx.shell` executor and `ctx.approval`; unmatched knob values are reported as CUSTOM_PRESET, not an error.
 

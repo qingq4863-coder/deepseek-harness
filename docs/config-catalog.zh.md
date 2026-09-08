@@ -1533,11 +1533,24 @@ export interface PresetSpec {
   sandbox: SandboxMode
   /** The `approval/policy` value the preset writes through. */
   approval: ApprovalPolicy
+  /**
+   * Optional maximum tool `risk` this preset executes: declared tools at or
+   * below the ceiling run, tools above it are denied, and tools without
+   * capability metadata are denied while a ceiling is set. Unset presets
+   * impose no ceiling.
+   */
+  capabilityRisk?: CapabilityRisk
   /** The display label a client shows for this preset; the raw table key when omitted. */
   name?: string
   /** One user-facing sentence on what the preset means; omitted when not configured. */
   description?: string
 }
+
+/**
+ * The closed tool risk vocabulary a preset ceiling compares, mirroring the
+ * `capability.risk` values of `@deepseek-ai/dsh-tools`.
+ */
+export type CapabilityRisk = 'low' | 'medium' | 'high' | 'prohibited'
 ```
 
 依赖：[`ApprovalPolicy`](subsystems/approval.zh.md) · [`SandboxMode`](subsystems/sandbox.zh.md)
@@ -2996,6 +3009,13 @@ export interface Config {
    * rejected.
    */
   allowParallelInProgress: boolean
+  /**
+   * Required deployment choice for whether a `completed` todo must carry `evidence`. True turns the
+   * evidence invitation into a gate: the description demands it and a completed item without one is
+   * rejected. False keeps the invitation — the description still asks for evidence, the tool just
+   * does not require it.
+   */
+  requireCompletedEvidence: boolean
 }
 ```
 
