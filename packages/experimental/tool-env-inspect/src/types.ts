@@ -194,3 +194,64 @@ export interface AppsDiffResult {
   coverageChanged: boolean
   coverage: AppInventoryCoverage
 }
+
+/** One package manager this package can probe. */
+export type PkgManagerId = 'winget' | 'npm' | 'pip'
+
+/**
+ * What one manager probe produced. `ok` means its output was read completely; `partial` means it
+ * was read but something was incomplete; `unavailable` means the executable is not installed;
+ * `denied` means the approval decision refused the run, so no process was spawned; `failed`
+ * means the process ran but its output could not be used.
+ */
+export type PkgManagerStatus = 'ok' | 'partial' | 'unavailable' | 'denied' | 'failed'
+
+/** One package manager's outcome inside a `pkg_inspect` result. */
+export interface PkgManagerReport {
+  id: PkgManagerId
+  status: PkgManagerStatus
+  /** Packages this manager contributed before filtering. */
+  count: number
+  /** The executable that was resolved and approved for the run, when one was resolved. */
+  executable?: string
+  /** Why the probe was not fully read, when it was not. */
+  note?: string
+}
+
+/**
+ * One package recorded by a package manager. The name and version are third-party text produced
+ * by the manager and its registries, so they are sanitized data, never instructions.
+ */
+export interface InstalledPackage {
+  /** Stable identity derived from the manager and the manager's own package key. */
+  id: string
+  name: string
+  version?: string
+  manager: PkgManagerId
+  /** The manager's own key for the package: winget Id, or the npm/pip package name. */
+  sourceKey: string
+}
+
+/** What the package-manager inventory covers and what it cannot see. */
+export interface PkgInventoryCoverage {
+  includes: string[]
+  excludes: string[]
+  notCovered: string[]
+}
+
+/** Result of one `pkg_inspect` call. */
+export interface PkgInspectResult {
+  snapshot: {
+    generatedAt: string
+    durationMs: number
+    platform: string
+  }
+  managers: PkgManagerReport[]
+  packages: InstalledPackage[]
+  /** Matching packages before the `limit` was applied. */
+  total: number
+  /** Packages in `packages`; never greater than the requested `limit`. */
+  returned: number
+  truncated: boolean
+  coverage: PkgInventoryCoverage
+}

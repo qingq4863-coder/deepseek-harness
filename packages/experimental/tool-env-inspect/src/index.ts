@@ -19,6 +19,7 @@ import type {} from '@deepseek-ai/dsh-user-approval'
 import z from '@deepseek-ai/schemastery'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { registerAppsTools } from './apps-tool.ts'
+import { registerPkgInspect } from './pkg-tool.ts'
 import type { EnvCommandProbe, EnvVersionProbe } from './types.ts'
 
 export type * from './types.ts'
@@ -26,6 +27,10 @@ export { APPS_INVENTORY_SCRIPT, APP_INVENTORY_COVERAGE, APP_SOURCE_IDS, appId, b
 export type { AppDiff, InventoryCollection, InventoryReader, InventoryReaderOptions, RawInventory, RawInventoryRow, SanitizedField } from './apps.ts'
 export { filterApps, registerAppsTools, renderApps, renderDiff } from './apps-tool.ts'
 export type { AppsDiffArgs, AppsInspectArgs, AppsInspectConfig } from './apps-tool.ts'
+export { buildPackages, packageId, PKG_INVENTORY_COVERAGE, PKG_MANAGER_IDS, PKG_PROBES, pkgNotCovered } from './pkg.ts'
+export type { ParsedPackage, ParseOutcome, PkgProbe } from './pkg.ts'
+export { registerPkgInspect, renderPkgInspect } from './pkg-tool.ts'
+export type { PkgInspectArgs, PkgInspectConfig } from './pkg-tool.ts'
 
 export const name = 'tool-env-inspect'
 export const inject = ['tools', 'approval', 'subprocess']
@@ -95,6 +100,23 @@ export interface Config {
    * before evicting the oldest. The accepted range is 1-50, and a value outside it fails at load.
    */
   appsMaxSnapshots: number
+  /**
+   * Required deployment choice for how many packages one `pkg_inspect` call returns when the
+   * model omits `limit`. The accepted range is 1-`pkgMaxPackages`, and a value outside it fails
+   * at load.
+   */
+  pkgDefaultLimit: number
+  /**
+   * Required deployment choice for the largest `limit` one `pkg_inspect` call may use. The
+   * accepted range is 1-500, and a value outside it fails at load.
+   */
+  pkgMaxPackages: number
+  /**
+   * Required deployment choice for the deadline of one package-manager probe, in milliseconds.
+   * Expiry aborts the probe's process tree; the accepted range is 1000-120000, and a value
+   * outside it fails at load.
+   */
+  pkgTimeoutMs: number
 }
 
 /** Schemastery configuration for the env-inspect tool consumer. */
@@ -107,6 +129,9 @@ export const Config: z<Config> = z.object({
   appsCacheTtlMs: z.number().required(),
   appsTimeoutMs: z.number().required(),
   appsMaxSnapshots: z.number().required(),
+  pkgDefaultLimit: z.number().required(),
+  pkgMaxPackages: z.number().required(),
+  pkgTimeoutMs: z.number().required(),
 })
 
 function pathDirectories(env: NodeJS.ProcessEnv): string[] {
@@ -225,6 +250,15 @@ export function apply(ctx: Context, config: Config): void {
   }
   if (!Number.isInteger(config.appsMaxSnapshots) || config.appsMaxSnapshots < 1 || config.appsMaxSnapshots > 50) {
     throw new Error('tool-env-inspect config.appsMaxSnapshots must be an integer between 1 and 50')
+  }
+  if (!Number.isInteger(config.pkgMaxPackages) || config.pkgMaxPackages < 1 || config.pkgMaxPackages > 500) {
+    throw new Error('tool-env-inspect config.pkgMaxPackages must be an integer between 1 and 500')
+  }
+  if (!Number.isInteger(config.pkgDefaultLimit) || config.pkgDefaultLimit < 1 || config.pkgDefaultLimit > config.pkgMaxPackages) {
+    throw new Error('tool-env-inspect config.pkgDefaultLimit must be an integer between 1 and config.pkgMaxPackages')
+  }
+  if (!Number.isInteger(config.pkgTimeoutMs) || config.pkgTimeoutMs < 1000 || config.pkgTimeoutMs > 120000) {
+    throw new Error('tool-env-inspect config.pkgTimeoutMs must be an integer between 1000 and 120000')
   }
   ctx.tools.register(defineTool({
     name: 'env_inspect',
@@ -424,4 +458,5 @@ export function apply(ctx: Context, config: Config): void {
   }))
 
   registerAppsTools(ctx, config)
+  registerPkgInspect(ctx, config)
 }

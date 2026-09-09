@@ -579,10 +579,13 @@ const TOOL_PACKAGES: ToolPackage[] = [
         appsCacheTtlMs: 60000,
         appsTimeoutMs: 30000,
         appsMaxSnapshots: 5,
+        pkgDefaultLimit: 5,
+        pkgMaxPackages: 20,
+        pkgTimeoutMs: 30000,
       })
     },
     note:
-      'env_inspect and env_version are the environment probe of the installer plan: command names in, executable paths on PATH out, and optionally one approval-gated, time-limited --version run per approved name. apps_inspect enumerates installed applications from read-only Windows registry, App Paths, and AppX sources through the optional shell seam; apps_snapshot captures one bounded, named observation and apps_diff compares two observations by stable entry id. None of the apps tools ever runs a discovered program, and uninstall commands are never returned. The package is experimental and excluded from official releases, and no shipped profile mounts it; the cataloged bounds are the catalog\'s own choices of the required config.',
+      'env_inspect and env_version are the environment probe of the installer plan: command names in, executable paths on PATH out, and optionally one approval-gated, time-limited --version run per approved name. apps_inspect enumerates installed applications from read-only Windows registry, App Paths, and AppX sources through the optional shell seam; apps_snapshot captures one bounded, named observation and apps_diff compares two observations by stable entry id; pkg_inspect runs each selected package manager\'s fixed read-only command behind its own approval decision. None of these tools runs a discovered program, and uninstall commands are never returned. The package is experimental and excluded from official releases, and no shipped profile mounts it; the cataloged bounds are the catalog\'s own choices of the required config.',
   },
   {
     pkg: '@deepseek-ai/dsh-tool-workflow',

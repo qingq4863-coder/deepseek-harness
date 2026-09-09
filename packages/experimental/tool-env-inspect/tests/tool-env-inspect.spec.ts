@@ -141,6 +141,9 @@ async function setup(
     appsCacheTtlMs: 0,
     appsTimeoutMs: 15000,
     appsMaxSnapshots: 3,
+    pkgDefaultLimit: 20,
+    pkgMaxPackages: 50,
+    pkgTimeoutMs: 15000,
     ...options.apps,
   })
   return ctx
@@ -218,6 +221,9 @@ describe('env_inspect tool', () => {
       appsCacheTtlMs: 0,
       appsTimeoutMs: 15000,
       appsMaxSnapshots: 3,
+      pkgDefaultLimit: 20,
+      pkgMaxPackages: 50,
+      pkgTimeoutMs: 15000,
     })
     expect(ctx.tools.schemas().some(s => s.name === 'env_inspect')).toBe(true)
     expect(ctx.tools.schemas().some(s => s.name === 'env_version')).toBe(true)

@@ -33,6 +33,9 @@ const APPS_CONFIG: AppsInspectConfig = {
   appsMaxSnapshots: 3,
 }
 
+/** The package-manager half of the plugin config; these tests never probe a manager. */
+const PKG_PART = { pkgDefaultLimit: 20, pkgMaxPackages: 50, pkgTimeoutMs: 15000 }
+
 function resultText(result: { content: { type: string; text?: string }[] }): string {
   return result.content.filter(block => block.type === 'text').map(block => block.text).join('\n')
 }
@@ -495,7 +498,14 @@ describe('apps_inspect tool', () => {
     ctx.provide('subprocess', { resolveExecutable: async () => 'stub', spawn: () => ({ collected: {}, done: Promise.resolve({ exitCode: 0, signal: null }) }) })
     if (options.shell !== undefined) ctx.provide('shell', options.shell)
     context = ctx
-    await ctx.plugin(ToolEnvInspect, { maxCommands: 8, versionMaxCommands: 4, versionTimeoutMs: 5000, ...APPS_CONFIG, ...options.apps })
+    await ctx.plugin(ToolEnvInspect, {
+      maxCommands: 8,
+      versionMaxCommands: 4,
+      versionTimeoutMs: 5000,
+      ...APPS_CONFIG,
+      ...PKG_PART,
+      ...options.apps,
+    })
     return ctx
   }
 
@@ -585,7 +595,13 @@ describe('apps_inspect tool', () => {
     ctx.provide('approval', fakeApproval([]))
     ctx.provide('subprocess', { resolveExecutable: async () => 'stub', spawn: () => ({ collected: {}, done: Promise.resolve({ exitCode: 0, signal: null }) }) })
     context = ctx
-    const fiber = await ctx.plugin(ToolEnvInspect, { maxCommands: 8, versionMaxCommands: 4, versionTimeoutMs: 5000, ...APPS_CONFIG })
+    const fiber = await ctx.plugin(ToolEnvInspect, {
+      maxCommands: 8,
+      versionMaxCommands: 4,
+      versionTimeoutMs: 5000,
+      ...APPS_CONFIG,
+      ...PKG_PART,
+    })
     const names = (): string[] => ctx.tools.schemas().map(schema => schema.name).filter(name => name.startsWith('apps_')).sort()
     expect(names()).toEqual(['apps_diff', 'apps_inspect', 'apps_snapshot'])
     await fiber.dispose()

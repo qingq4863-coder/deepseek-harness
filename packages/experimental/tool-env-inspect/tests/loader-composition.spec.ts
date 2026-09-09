@@ -121,6 +121,9 @@ const ENV_CONFIG = [
   '    appsCacheTtlMs: 0',
   '    appsTimeoutMs: 60000',
   '    appsMaxSnapshots: 2',
+  '    pkgDefaultLimit: 5',
+  '    pkgMaxPackages: 10',
+  '    pkgTimeoutMs: 60000',
 ]
 
 describe('tool-env-inspect real Loader composition through cordis.yml', () => {
@@ -238,6 +241,24 @@ describe('tool-env-inspect real Loader composition through cordis.yml', () => {
     expect(resultText(diff)).toMatch(/Installed-application diff "baseline" → "now": (no change\.|\d+ added, \d+ removed, \d+ changed\.)/u)
   }, 120_000)
 
+  it.skipIf(!IS_WIN32)('pkg_inspect reads a real package manager through the approved fixed argv', async () => {
+    const ctx = await boot([...BASE_ENTRIES, ...ENV_CONFIG])
+    ctx.on('approval/request', () => Promise.resolve('allowed-once'))
+    const caller = agent(ctx)
+    caller.session.append('turn/start', { turn: 1 })
+    const result = await ctx.tools.execute({
+      signal: new AbortController().signal,
+      callId: ToolCallId('pkg-real'),
+      name: 'pkg_inspect',
+      arguments: { managers: ['pip', 'npm'], limit: 3 },
+      agent: caller,
+    })
+    expect(result.isError).toBe(false)
+    const text = resultText(result)
+    // At least one of the two managers must actually read the host.
+    expect(text).toMatch(/managers: .*(pip|npm) (ok|partial) \(/u)
+  }, 120_000)
+
   it.each([
     { label: 'is omitted', overrides: { maxCommands: undefined }, failure: '$.maxCommands missing required value' },
     { label: 'is not a number', overrides: { maxCommands: '"many"' }, failure: '$.maxCommands expected number' },
@@ -252,6 +273,10 @@ describe('tool-env-inspect real Loader composition through cordis.yml', () => {
     { label: 'is out of range for appsTimeoutMs', overrides: { appsTimeoutMs: 50 }, failure: 'appsTimeoutMs must be an integer between 1000 and 120000' },
     { label: 'is omitted for appsMaxSnapshots', overrides: { appsMaxSnapshots: undefined }, failure: '$.appsMaxSnapshots missing required value' },
     { label: 'is out of range for appsMaxSnapshots', overrides: { appsMaxSnapshots: 0 }, failure: 'appsMaxSnapshots must be an integer between 1 and 50' },
+    { label: 'is omitted for pkgMaxPackages', overrides: { pkgMaxPackages: undefined }, failure: '$.pkgMaxPackages missing required value' },
+    { label: 'is out of range for pkgMaxPackages', overrides: { pkgMaxPackages: 0 }, failure: 'pkgMaxPackages must be an integer between 1 and 500' },
+    { label: 'exceeds pkgMaxPackages', overrides: { pkgDefaultLimit: 20 }, failure: 'pkgDefaultLimit must be an integer between 1 and config.pkgMaxPackages' },
+    { label: 'is out of range for pkgTimeoutMs', overrides: { pkgTimeoutMs: 50 }, failure: 'pkgTimeoutMs must be an integer between 1000 and 120000' },
   ])('fails loading when $label', async ({ overrides, failure }) => {
     // Every bound is self-contained, so misconfiguration fails at load: the entry's apply
     // rejects and boot never reaches a running tool.
@@ -267,6 +292,9 @@ describe('tool-env-inspect real Loader composition through cordis.yml', () => {
       appsCacheTtlMs: 0,
       appsTimeoutMs: 30000,
       appsMaxSnapshots: 3,
+      pkgDefaultLimit: 5,
+      pkgMaxPackages: 10,
+      pkgTimeoutMs: 30000,
       ...overrides,
     }
     const lines = Object.entries(config)
