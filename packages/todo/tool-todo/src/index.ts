@@ -29,7 +29,7 @@ const STATUSES = ['pending', 'in_progress', 'completed'] as const
 export interface Config {
   /**
    * Required deployment choice for whether several todos may be `in_progress` at once. True suits
-   * agents that run work concurrently 閳?subagents, background commands, workflow fan-out 閳?and the
+   * agents that run work concurrently — subagents, background commands, workflow fan-out — and the
    * description then instructs the model to mark every actively worked task. False restores the
    * single-active discipline: the description asks for exactly one, and a call marking more is
    * rejected.
@@ -38,7 +38,7 @@ export interface Config {
   /**
    * Required deployment choice for whether a `completed` todo must carry `evidence`. True turns the
    * evidence invitation into a gate: the description demands it and a completed item without one is
-   * rejected. False keeps the invitation 閳?the description still asks for evidence, the tool just
+   * rejected. False keeps the invitation — the description still asks for evidence, the tool just
    * does not require it.
    */
   requireCompletedEvidence: boolean
@@ -52,13 +52,13 @@ export const Config: z<Config> = z.object({
 
 const DESCRIPTION_HEAD =
   'Record and update a structured task list for the current work. Send the ENTIRE '
-  + 'list every call 閳?it REPLACES the previous list (there are no partial updates, '
+  + 'list every call — it REPLACES the previous list (there are no partial updates, '
   + 'no per-item edits). Use it to plan multi-step work and show progress: add one '
   + 'todo per concrete step before you start. '
 
 const DESCRIPTION_PARALLEL =
   'Mark every todo being actively worked '
-  + 'on `in_progress` 閳?several at once when work genuinely runs in parallel (e.g. '
+  + 'on `in_progress` — several at once when work genuinely runs in parallel (e.g. '
   + 'concurrent subagents or background commands), one for sequential work; while '
   + 'work remains, at least one task should be `in_progress`. '
 
@@ -67,13 +67,13 @@ const DESCRIPTION_SINGLE =
   + 'time; while work remains, exactly one active task should be `in_progress`. '
 
 const DESCRIPTION_EVIDENCE_INVITE =
-  'When you mark a todo `completed`, attach `evidence` 閳?one line naming the '
+  'When you mark a todo `completed`, attach `evidence` — one line naming the '
   + 'check that passed or the artifact that proves it; `evidence` is only valid '
   + 'on `completed` items. '
 
 const DESCRIPTION_EVIDENCE_REQUIRED =
-  'A `completed` todo MUST carry `evidence` 閳?one line naming the check that '
-  + 'passed or the artifact that proves it 閳?or the call is rejected; '
+  'A `completed` todo MUST carry `evidence` — one line naming the check that '
+  + 'passed or the artifact that proves it — or the call is rejected; '
   + '`evidence` is only valid on `completed` items. '
 
 const DESCRIPTION_TAIL =
@@ -103,7 +103,7 @@ function describe(allowParallel: boolean, requireCompleted: boolean): string {
  * TodoItem}[]: trimmed non-empty unique content, trimmed non-empty `evidence` on `completed` items
  * only, and at most one `in_progress` item unless the deployment allows parallel work. The
  * registry has already enforced the status enum and rejected
- * unknown item keys (`additionalProperties: false` 閳?the logged snapshot must equal what the model
+ * unknown item keys (`additionalProperties: false` — the logged snapshot must equal what the model
  * believes it wrote, so a nested/extended item shape fails loud at the schema boundary instead of
  * silently flattening); the cast below records that guarantee.
  * @param raw - the model-supplied list, already schema-checked.
@@ -155,7 +155,7 @@ function toTodoList(
 /** Wire payload schema of the `todos` projection (whole list or pre-first-write null). */
 // Record-type cast: zod's `.optional()` output type carries `| undefined`,
 // which exactOptionalPropertyTypes rejects against TodoItem's exact-optional
-// `evidence?`; the runtime contract 閳?absent, or a string 閳?is what this
+// `evidence?`; the runtime contract — absent, or a string — is what this
 // schema enforces and what the tool guarantees on write.
 const todosProjectionSchema = zod.union([
   zod.array(zod.object({
@@ -203,7 +203,7 @@ export function apply(ctx: Context, config: Config): void {
           type: 'object',
           additionalProperties: false,
           properties: {
-            content: { type: 'string', required: true, description: 'What the task is 閳?a short imperative line.' },
+            content: { type: 'string', required: true, description: 'What the task is — a short imperative line.' },
             status: {
               type: 'string',
               required: true,
@@ -212,7 +212,7 @@ export function apply(ctx: Context, config: Config): void {
             },
             evidence: {
               type: 'string',
-              description: 'One-line proof a completed task is done 閳?the check that passed or the artifact.',
+              description: 'One-line proof a completed task is done — the check that passed or the artifact.',
             },
           },
         },

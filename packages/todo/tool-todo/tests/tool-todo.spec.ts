@@ -16,12 +16,12 @@ const testToolSignal = new AbortController().signal
 /**
  * Drives the REAL plugin body: mounts `dsh-tool-todo` on a real `ToolRuntime`
  * and invokes the registered `todo_write` tool through `ctx.tools.execute`,
- * with a fake parent Agent carrying a real `Session` 閳?so the append the tool
+ * with a fake parent Agent carrying a real `Session` — so the append the tool
  * makes is observable on a genuine session log (only the agent wrapper is a
  * stand-in; the session and the tool are the shipping code).
  */
 
-/** A parent Agent backed by a real Session 閳?the tool reads `agent.session`. */
+/** A parent Agent backed by a real Session — the tool reads `agent.session`. */
 function agentWithSession(id = 'parent-1'): Agent & { session: Session } {
   const session = Session.create(SessionId(id))
   return { id: SessionId(id), session } as unknown as Agent & { session: Session }

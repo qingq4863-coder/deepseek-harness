@@ -10,17 +10,17 @@
 
 ```ts type-equiv
 /**
- * One entry in an agent's todo list 鈥?the unit of the `todo/write`
+ * One entry in an agent's todo list — the unit of the `todo/write`
  * whole-list snapshot declared by this package.
  *
  * Deliberately minimal: a human-readable `content` line, a three-state
  * `status`, and one optional completion-evidence line. No id, priority, or
- * `activeForm` 鈥?the list is replaced wholesale on every write
+ * `activeForm` — the list is replaced wholesale on every write
  * (last-write-wins), so entries need no stable identity. The three statuses
  * describe the complete portable lifecycle needed by model and UI consumers.
  */
 interface TodoItem {
-  /** What this task is 鈥?a short imperative line shown in the UI. */
+  /** What this task is — a short imperative line shown in the UI. */
   content: string
   /** Lifecycle state. `in_progress` marks a task being worked now; parallel work may mark several. */
   status: 'pending' | 'in_progress' | 'completed'

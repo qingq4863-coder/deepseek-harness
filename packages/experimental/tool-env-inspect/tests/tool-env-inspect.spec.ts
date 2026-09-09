@@ -120,18 +120,27 @@ function fakeSubprocess(executable: string, outcome: SubprocessOutcome, stdout =
   }
 }
 
-async function setup(maxCommands = 8, options: { approval?: unknown; subprocess?: unknown } = {}): Promise<Context> {
+async function setup(
+  maxCommands = 8,
+  options: { approval?: unknown; subprocess?: unknown; shell?: unknown; apps?: Partial<ToolEnvInspect.AppsInspectConfig> } = {},
+): Promise<Context> {
   const ctx = new Context()
   await ctx.plugin(SystemPrompt)
   await ctx.plugin(ToolRuntime)
   await ctx.plugin(AgentRegistry)
   ctx.provide('approval', options.approval ?? fakeApproval([]))
   ctx.provide('subprocess', options.subprocess ?? fakeSubprocess('stub-path', { exitCode: 0, signal: null }))
+  if (options.shell !== undefined) ctx.provide('shell', options.shell)
   context = ctx
   await ctx.plugin(ToolEnvInspect, {
     maxCommands,
     versionMaxCommands: 4,
     versionTimeoutMs: 5000,
+    appsDefaultLimit: 20,
+    appsMaxLimit: 50,
+    appsCacheTtlMs: 0,
+    appsTimeoutMs: 15000,
+    ...options.apps,
   })
   return ctx
 }
@@ -203,6 +212,10 @@ describe('env_inspect tool', () => {
       maxCommands: 8,
       versionMaxCommands: 4,
       versionTimeoutMs: 5000,
+      appsDefaultLimit: 20,
+      appsMaxLimit: 50,
+      appsCacheTtlMs: 0,
+      appsTimeoutMs: 15000,
     })
     expect(ctx.tools.schemas().some(s => s.name === 'env_inspect')).toBe(true)
     expect(ctx.tools.schemas().some(s => s.name === 'env_version')).toBe(true)

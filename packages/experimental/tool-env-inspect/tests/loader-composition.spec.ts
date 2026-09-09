@@ -6,6 +6,7 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
+import { spawnSync } from 'node:child_process'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
@@ -18,9 +19,15 @@ import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
 import ApprovalService from '@deepseek-ai/dsh-user-approval'
 import LocalSubprocessRuntime from '@deepseek-ai/dsh-subprocess-local'
+import PwshLocalExecutor, { resolvePwshPath } from '@deepseek-ai/dsh-pwsh-local'
 import * as ToolEnvInspect from '@deepseek-ai/dsh-experimental-tool-env-inspect'
 
 const IS_WIN32 = process.platform === 'win32'
+
+// apps_inspect reads real Windows inventory through the governed pwsh channel, so the real
+// end-to-end case needs both a Windows host and a spawnable PowerShell (the same probe
+// vitest.config.ts uses to exempt pwsh-local's own suites).
+const HAS_PWSH = spawnSync(resolvePwshPath(), ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', '$true'], { encoding: 'utf8' }).status === 0
 
 let root: string | undefined
 let context: Context | undefined
@@ -78,6 +85,7 @@ async function boot(entries: readonly string[]): Promise<Context> {
     ['@deepseek-ai/dsh-tools', ToolRuntime],
     ['@deepseek-ai/dsh-user-approval', ApprovalService],
     ['@deepseek-ai/dsh-subprocess-local', LocalSubprocessRuntime],
+    ['@deepseek-ai/dsh-pwsh-local', PwshLocalExecutor],
     ['@deepseek-ai/dsh-experimental-tool-env-inspect', ToolEnvInspect],
   ])
   ctx.loader.internal = {
@@ -99,6 +107,7 @@ const BASE_ENTRIES = [
   "- name: '@deepseek-ai/dsh-tools'",
   "- name: '@deepseek-ai/dsh-user-approval'",
   "- name: '@deepseek-ai/dsh-subprocess-local'",
+  "- name: '@deepseek-ai/dsh-pwsh-local'",
 ]
 
 const ENV_CONFIG = [
@@ -107,6 +116,10 @@ const ENV_CONFIG = [
   '    maxCommands: 1',
   '    versionMaxCommands: 2',
   '    versionTimeoutMs: 15000',
+  '    appsDefaultLimit: 5',
+  '    appsMaxLimit: 10',
+  '    appsCacheTtlMs: 0',
+  '    appsTimeoutMs: 60000',
 ]
 
 describe('tool-env-inspect real Loader composition through cordis.yml', () => {
@@ -178,19 +191,56 @@ describe('tool-env-inspect real Loader composition through cordis.yml', () => {
     expect(resultText(unresolved)).toContain('definitely-missing-cmd: not found')
   }, 30_000)
 
+  it.skipIf(!IS_WIN32 || !HAS_PWSH)('apps_inspect reads the real machine through the governed pwsh channel', async () => {
+    const ctx = await boot([...BASE_ENTRIES, ...ENV_CONFIG])
+    ctx.on('approval/request', () => Promise.resolve('allowed-once'))
+    const caller = agent(ctx)
+    caller.session.append('turn/start', { turn: 1 })
+    const result = await ctx.tools.execute({
+      signal: new AbortController().signal,
+      callId: ToolCallId('apps-real'),
+      name: 'apps_inspect',
+      arguments: { limit: 3 },
+      agent: caller,
+    })
+    expect(result.isError).toBe(false)
+    const text = resultText(result)
+    expect(text).toMatch(/Installed applications: \d+ of \d+ matching/u)
+    // Uninstall commands are a change surface and never reach the model.
+    expect(text).not.toMatch(/msiexec|uninstallstring|quietuninstall/iu)
+  }, 120_000)
+
   it.each([
-    { label: 'is omitted', configLines: [], failure: '$.maxCommands missing required value' },
-    { label: 'is not a number', configLines: ['    maxCommands: "many"'], failure: '$.maxCommands expected number' },
-    { label: 'is out of range', configLines: ['    maxCommands: 0', '    versionMaxCommands: 2', '    versionTimeoutMs: 15000'], failure: 'maxCommands must be an integer between 1 and 64' },
-    { label: 'is omitted for versionMaxCommands', configLines: ['    maxCommands: 8'], failure: '$.versionMaxCommands missing required value' },
-    { label: 'is out of range for versionMaxCommands', configLines: ['    maxCommands: 8', '    versionMaxCommands: 0', '    versionTimeoutMs: 15000'], failure: 'versionMaxCommands must be an integer between 1 and 32' },
-    { label: 'is out of range for versionTimeoutMs', configLines: ['    maxCommands: 8', '    versionMaxCommands: 2', '    versionTimeoutMs: 50'], failure: 'versionTimeoutMs must be an integer between 1000 and 120000' },
-  ])('fails loading when $label', async ({ configLines, failure }) => {
+    { label: 'is omitted', overrides: { maxCommands: undefined }, failure: '$.maxCommands missing required value' },
+    { label: 'is not a number', overrides: { maxCommands: '"many"' }, failure: '$.maxCommands expected number' },
+    { label: 'is out of range', overrides: { maxCommands: 0 }, failure: 'maxCommands must be an integer between 1 and 64' },
+    { label: 'is omitted for versionMaxCommands', overrides: { versionMaxCommands: undefined }, failure: '$.versionMaxCommands missing required value' },
+    { label: 'is out of range for versionMaxCommands', overrides: { versionMaxCommands: 0 }, failure: 'versionMaxCommands must be an integer between 1 and 32' },
+    { label: 'is out of range for versionTimeoutMs', overrides: { versionTimeoutMs: 50 }, failure: 'versionTimeoutMs must be an integer between 1000 and 120000' },
+    { label: 'is omitted for appsDefaultLimit', overrides: { appsDefaultLimit: undefined }, failure: '$.appsDefaultLimit missing required value' },
+    { label: 'is out of range for appsMaxLimit', overrides: { appsMaxLimit: 0 }, failure: 'appsMaxLimit must be an integer between 1 and 200' },
+    { label: 'exceeds appsMaxLimit', overrides: { appsDefaultLimit: 20 }, failure: 'appsDefaultLimit must be an integer between 1 and config.appsMaxLimit' },
+    { label: 'is out of range for appsCacheTtlMs', overrides: { appsCacheTtlMs: -1 }, failure: 'appsCacheTtlMs must be an integer between 0 and 3600000' },
+    { label: 'is out of range for appsTimeoutMs', overrides: { appsTimeoutMs: 50 }, failure: 'appsTimeoutMs must be an integer between 1000 and 120000' },
+  ])('fails loading when $label', async ({ overrides, failure }) => {
     // Every bound is self-contained, so misconfiguration fails at load: the entry's apply
     // rejects and boot never reaches a running tool.
     const probeDir = join(root ?? '', 'bin')
     await mkdir(probeDir, { recursive: true })
     vi.stubEnv('PATH', probeDir)
-    await expect(boot([...BASE_ENTRIES, "- name: '@deepseek-ai/dsh-experimental-tool-env-inspect'", '  config:', ...configLines])).rejects.toThrow(failure)
+    const config = {
+      maxCommands: 8,
+      versionMaxCommands: 2,
+      versionTimeoutMs: 15000,
+      appsDefaultLimit: 5,
+      appsMaxLimit: 10,
+      appsCacheTtlMs: 0,
+      appsTimeoutMs: 30000,
+      ...overrides,
+    }
+    const lines = Object.entries(config)
+      .filter(([, value]) => value !== undefined)
+      .map(([key, value]) => `    ${key}: ${value as string}`)
+    await expect(boot([...BASE_ENTRIES, "- name: '@deepseek-ai/dsh-experimental-tool-env-inspect'", '  config:', ...lines])).rejects.toThrow(failure)
   }, 30_000)
 })

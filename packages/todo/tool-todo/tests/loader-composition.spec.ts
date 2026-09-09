@@ -1,6 +1,6 @@
 // Proves the todo policy flags are real configurability and not constants: each
 // flag is set in a cordis.yml booted through the real Loader, and both faces it
-// controls 閳?the model-facing description and the accepted input 閳?follow it.
+// controls — the model-facing description and the accepted input — follow it.
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'

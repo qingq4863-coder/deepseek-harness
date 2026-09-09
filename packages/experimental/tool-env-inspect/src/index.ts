@@ -4,7 +4,9 @@
  * is executed, downloaded, or installed there, and resolution runs in-process against the
  * filesystem. `env_version` is the package's one execution surface: it runs a resolved
  * executable's `--version` in a bounded child process, one approval decision per probe ahead
- * of every run. Download, install, and verification stay out of scope.
+ * of every run. `apps_inspect` enumerates installed applications from read-only Windows
+ * inventory sources through the optional shell seam, returning sanitized metadata only.
+ * Download, install, and verification stay out of scope.
  * @module @deepseek-ai/dsh-experimental-tool-env-inspect
  */
 
@@ -16,9 +18,14 @@ import type {} from '@deepseek-ai/dsh-subprocess'
 import type {} from '@deepseek-ai/dsh-user-approval'
 import z from '@deepseek-ai/schemastery'
 import { defineTool } from '@deepseek-ai/dsh-tools'
+import { registerAppsInspect } from './apps-tool.ts'
 import type { EnvCommandProbe, EnvVersionProbe } from './types.ts'
 
 export type * from './types.ts'
+export { APPS_INVENTORY_SCRIPT, APP_INVENTORY_COVERAGE, APP_SOURCE_IDS, appId, buildApps, classifyArch, classifyInstaller, classifyKind, createInventoryReader, notCoveredFor, parseInventoryOutput, sanitizeField, snapshotId, unavailableSources } from './apps.ts'
+export type { InventoryCollection, InventoryReader, InventoryReaderOptions, RawInventory, RawInventoryRow, SanitizedField } from './apps.ts'
+export { filterApps, registerAppsInspect, renderApps } from './apps-tool.ts'
+export type { AppsInspectArgs, AppsInspectConfig } from './apps-tool.ts'
 
 export const name = 'tool-env-inspect'
 export const inject = ['tools', 'approval', 'subprocess']
@@ -60,6 +67,29 @@ export interface Config {
    * accepted range is 1000-120000, and a value outside it fails at load.
    */
   versionTimeoutMs: number
+  /**
+   * Required deployment choice for how many installed-application entries one `apps_inspect`
+   * call returns when the model omits `limit`. The accepted range is 1-200 and it must not
+   * exceed `appsMaxLimit`, and a value outside that fails at load.
+   */
+  appsDefaultLimit: number
+  /**
+   * Required deployment choice for the largest `limit` one `apps_inspect` call may use. The
+   * accepted range is 1-200, and a value outside it fails at load.
+   */
+  appsMaxLimit: number
+  /**
+   * Required deployment choice for the installed-application snapshot cache lifetime, in
+   * milliseconds. `0` disables caching so every call reads the machine again; the accepted
+   * range is 0-3600000, and a value outside it fails at load.
+   */
+  appsCacheTtlMs: number
+  /**
+   * Required deployment choice for the deadline of one installed-application collection run,
+   * in milliseconds. Expiry aborts the shell process tree and the result reports the sources as
+   * not read; the accepted range is 1000-120000, and a value outside it fails at load.
+   */
+  appsTimeoutMs: number
 }
 
 /** Schemastery configuration for the env-inspect tool consumer. */
@@ -67,6 +97,10 @@ export const Config: z<Config> = z.object({
   maxCommands: z.number().required(),
   versionMaxCommands: z.number().required(),
   versionTimeoutMs: z.number().required(),
+  appsDefaultLimit: z.number().required(),
+  appsMaxLimit: z.number().required(),
+  appsCacheTtlMs: z.number().required(),
+  appsTimeoutMs: z.number().required(),
 })
 
 function pathDirectories(env: NodeJS.ProcessEnv): string[] {
@@ -151,12 +185,14 @@ function validateCommandNames(commands: readonly string[]): void {
 }
 
 /**
- * Register the `env_inspect` and `env_version` tools on `ctx.tools`. Config bounds fail loud
- * at load. The package requires the `approval` and `subprocess` services so every
- * `env_version` probe can ask for a one-shot decision and run its child through the shared
- * process seam; a composition that omits either service fails at injection.
+ * Register the environment tools on `ctx.tools`. Config bounds fail loud at load. The package
+ * requires the `approval` and `subprocess` services so every `env_version` probe can ask for a
+ * one-shot decision and run its child through the shared process seam; a composition that omits
+ * either service fails at injection. `apps_inspect` resolves the optional `shell` service at
+ * call time, so a composition without a shell executor still loads and reports its inventory
+ * sources as not read.
  * @param ctx - registrant context carrying the tool registry, approval seam, and subprocess seam.
- * @param config - deployment's explicit probe bounds and version deadline.
+ * @param config - deployment's explicit probe bounds, version deadline, and inventory bounds.
  */
 export function apply(ctx: Context, config: Config): void {
   const { maxCommands, versionMaxCommands, versionTimeoutMs } = config
@@ -169,13 +205,26 @@ export function apply(ctx: Context, config: Config): void {
   if (!Number.isInteger(versionTimeoutMs) || versionTimeoutMs < 1000 || versionTimeoutMs > 120000) {
     throw new Error('tool-env-inspect config.versionTimeoutMs must be an integer between 1000 and 120000')
   }
+  if (!Number.isInteger(config.appsMaxLimit) || config.appsMaxLimit < 1 || config.appsMaxLimit > 200) {
+    throw new Error('tool-env-inspect config.appsMaxLimit must be an integer between 1 and 200')
+  }
+  if (!Number.isInteger(config.appsDefaultLimit) || config.appsDefaultLimit < 1 || config.appsDefaultLimit > config.appsMaxLimit) {
+    throw new Error('tool-env-inspect config.appsDefaultLimit must be an integer between 1 and config.appsMaxLimit')
+  }
+  if (!Number.isInteger(config.appsCacheTtlMs) || config.appsCacheTtlMs < 0 || config.appsCacheTtlMs > 3_600_000) {
+    throw new Error('tool-env-inspect config.appsCacheTtlMs must be an integer between 0 and 3600000')
+  }
+  if (!Number.isInteger(config.appsTimeoutMs) || config.appsTimeoutMs < 1000 || config.appsTimeoutMs > 120000) {
+    throw new Error('tool-env-inspect config.appsTimeoutMs must be an integer between 1000 and 120000')
+  }
   ctx.tools.register(defineTool({
     name: 'env_inspect',
     description: 'Inspect which commands are installed on this machine. Send a list of command '
       + 'names (e.g. `git`, `python`); each comes back with the executable paths found on PATH — '
       + 'the first one is what a shell would run — or an empty list when it is not installed. '
       + 'Read-only: nothing is executed, downloaded, or installed. Only executable files on PATH '
-      + 'are visible; shell built-ins and aliases are not.',
+      + 'are visible; shell built-ins and aliases are not. For applications installed outside PATH, '
+      + 'use apps_inspect.',
     parameters: {
       commands: {
         type: 'array',
@@ -212,6 +261,15 @@ export function apply(ctx: Context, config: Config): void {
           .map(probe => `${probe.command}: ${probe.paths.length > 0 ? probe.paths[0] : 'not found'}`)
           .join('\n'),
       }],
+    },
+    capability: {
+      dataClass: 'workspace',
+      risk: 'low',
+      readScope: ['PATH'],
+      writeScope: [],
+      network: [],
+      reversible: true,
+      approval: 'automatic',
     },
     execute(args) {
       const commands = [...new Set(args.commands)]
@@ -273,6 +331,15 @@ export function apply(ctx: Context, config: Config): void {
           })
           .join('\n'),
       }],
+    },
+    capability: {
+      dataClass: 'workspace',
+      risk: 'medium',
+      readScope: ['PATH'],
+      writeScope: [],
+      network: [],
+      reversible: true,
+      approval: 'scoped',
     },
     async execute(args, exec) {
       if (exec.agent === undefined) {
@@ -346,4 +413,6 @@ export function apply(ctx: Context, config: Config): void {
     },
     presentCall: args => ({ card: 'generic', title: 'Probe command versions', kind: 'other', rawInput: args.commands }),
   }))
+
+  registerAppsInspect(ctx, config)
 }

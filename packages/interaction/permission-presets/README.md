@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-`dsh-permission-presets` gives a deployment one user-facing Permissions selector that bundles two independent enforcement knobs 閳?the sandbox mode and the approval policy 閳?into named presets. Selecting a preset applies the sandbox mode and approval policy together, while each knob keeps its own value, so sandbox execution, approval, prompt narration, and replay each read their own setting. The default table ships `workspace-write` (workspace-write + ask) and `danger-full-access` (danger-full-access + never); a knob combination matching no preset reads back as the derived `custom`, which clients may display but never select. The service also owns the `permission` settings namespace whose default applies only when a later session is created, and two optional children 閳?a `permissions` session projection and the `/permission` command 閳?expose the same surface to the Web client. Mounting it requires a confining bash executor and the approval service. Knob switches own no enforcement; the one exception is an optional preset capability ceiling, denied through a monotonic tool guard.
+`dsh-permission-presets` gives a deployment one user-facing Permissions selector that bundles two independent enforcement knobs — the sandbox mode and the approval policy — into named presets. Selecting a preset applies the sandbox mode and approval policy together, while each knob keeps its own value, so sandbox execution, approval, prompt narration, and replay each read their own setting. The default table ships `workspace-write` (workspace-write + ask) and `danger-full-access` (danger-full-access + never); a knob combination matching no preset reads back as the derived `custom`, which clients may display but never select. The service also owns the `permission` settings namespace whose default applies only when a later session is created, and two optional children — a `permissions` session projection and the `/permission` command — expose the same surface to the Web client. Mounting it requires a confining bash executor and the approval service. Knob switches own no enforcement; the one exception is an optional preset capability ceiling, denied through a monotonic tool guard.
 
 ## Table of Contents
 
@@ -46,7 +46,7 @@ The plugin config defines the preset table and the default for fresh sessions. E
 
 | Field | Default | Meaning |
 |---|---|---|
-| `presets` | `workspace-write`, `danger-full-access` | Table of preset name 閳?sandbox/approval bundle |
+| `presets` | `workspace-write`, `danger-full-access` | Table of preset name → sandbox/approval bundle |
 | `defaultPreset` | inferred | Preset pinned into fresh sessions; required when composition defaults match no preset |
 | `presets[].capabilityRisk` | unset | Optional maximum tool `risk` the preset executes; above-ceiling declared tools and tools without capability metadata are denied |
 
@@ -60,7 +60,7 @@ Switching to a preset changes only the knobs whose effective value differs; sele
 
 ### What users see
 
-Clients render the select with every switchable preset in table order, plus `custom` shown exactly while it is current. `custom` is display-only 閳?callers can switch away from an unmatched knob combination but cannot select or persist a named custom preset through this service.
+Clients render the select with every switchable preset in table order, plus `custom` shown exactly while it is current. `custom` is display-only — callers can switch away from an unmatched knob combination but cannot select or persist a named custom preset through this service.
 
 ### Session defaults
 
@@ -72,7 +72,7 @@ The `permission` settings namespace holds `defaultPreset` for future sessions: s
 ## Understand the implementation
 
 <details>
-<summary>Implementation internals 閳?click to expand</summary>
+<summary>Implementation internals — click to expand</summary>
 
 The observable behavior is covered in [Use this package](#use-this-package); this section explains the write path, the read side, and the optional children.
 
@@ -86,7 +86,7 @@ The observable behavior is covered in [Use this package](#use-this-package); thi
 
 ### Write path
 
-`apply()` resolves the preset, appends `permission/preset` only when the effective preset changes, then writes each changed knob through its canonical setter 閳?`setSandboxMode` from `dsh-sandbox-policy` and `setApprovalPolicy` from `dsh-user-approval`. The selection event precedes the knob events so user intent survives when two presets share a bundle; a net-zero selection appends nothing.
+`apply()` resolves the preset, appends `permission/preset` only when the effective preset changes, then writes each changed knob through its canonical setter — `setSandboxMode` from `dsh-sandbox-policy` and `setApprovalPolicy` from `dsh-user-approval`. The selection event precedes the knob events so user intent survives when two presets share a bundle; a net-zero selection appends nothing.
 
 ### Read side and `custom`
 
@@ -109,10 +109,10 @@ The `permissions` projection unit registers only when a `ctx.sessionProjections`
 
 Read these pages when the package-level contract is not enough. They move from the preset vocabulary to the enforcement knobs and the design rationale.
 
-- [Permission presets subsystem reference](../../../docs/subsystems/permission-presets.md) 閳?the preset table, the select payload, and the `ctx.permissionPresets` cordis surface.
-- [Sandbox switching design Agent Note](../../../.agents/notes/implemented/feature/2026-07-06-sandbox.md) 閳?how sandbox mode and approval policy compose and switch.
-- [Approval subsystem reference](../../../docs/subsystems/approval.md) 閳?the approval policy knob this service bundles.
-- [Interaction group map](../README.md) 閳?adjacent command, approval, and question packages.
+- [Permission presets subsystem reference](../../../docs/subsystems/permission-presets.md) — the preset table, the select payload, and the `ctx.permissionPresets` cordis surface.
+- [Sandbox switching design Agent Note](../../../.agents/notes/implemented/feature/2026-07-06-sandbox.md) — how sandbox mode and approval policy compose and switch.
+- [Approval subsystem reference](../../../docs/subsystems/approval.md) — the approval policy knob this service bundles.
+- [Interaction group map](../README.md) — adjacent command, approval, and question packages.
 
 -----
 
@@ -132,17 +132,17 @@ No direct invalidation; the named consumer owns any request-prefix changes.
 
 These limits define what the preset service does not offer. They are current package constraints, not a permission-system comparison.
 
-- **Only two mechanism knobs are bundled** 閳?presets select sandbox mode and approval policy (plus the optional declarative `capabilityRisk` ceiling); an agent/profile choice is not part of `PresetSpec` yet.
-- **The capability ceiling compares declared metadata only** 閳?a tool whose metadata understates its actual behavior passes the check; the ceiling is a preset-level policy on declared capability, not a sandbox.
-- **`custom` is derived-only** 閳?callers can switch away from an unmatched knob combination but cannot target or persist a named custom preset through this service.
-- **The preset table is process-level** 閳?configuration is fixed for the plugin lifetime; changing available presets requires reloading the plugin.
-- **Stored defaults must remain in the preset table** 閳?removing the referenced preset makes Permission settings registration fail until the `permission` section in `settings.yaml` is updated or reset.
+- **Only two mechanism knobs are bundled** — presets select sandbox mode and approval policy (plus the optional declarative `capabilityRisk` ceiling); an agent/profile choice is not part of `PresetSpec` yet.
+- **The capability ceiling compares declared metadata only** — a tool whose metadata understates its actual behavior passes the check; the ceiling is a preset-level policy on declared capability, not a sandbox.
+- **`custom` is derived-only** — callers can switch away from an unmatched knob combination but cannot target or persist a named custom preset through this service.
+- **The preset table is process-level** — configuration is fixed for the plugin lifetime; changing available presets requires reloading the plugin.
+- **Stored defaults must remain in the preset table** — removing the referenced preset makes Permission settings registration fail until the `permission` section in `settings.yaml` is updated or reset.
 
 <a id="dev-note"></a>
 ### Dev Note
 
 <details>
-<summary>Working context for maintainers 閳?click to expand</summary>
+<summary>Working context for maintainers — click to expand</summary>
 
 None.
 

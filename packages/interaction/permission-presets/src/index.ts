@@ -130,7 +130,7 @@ const EMPTY_KNOBS: KnobState = { preset: null, sandbox: null, approval: null }
 
 /**
  * One-event permission-state transition (the projection unit's `apply`). Unrelated
- * events return the same reference 閳?the registry's change gate.
+ * events return the same reference — the registry's change gate.
  * @param state - the folded knob state before `event`.
  * @param event - one committed session event.
  * @returns the next state; the same reference when the event is unrelated.
@@ -162,7 +162,7 @@ export interface PermissionSettings {
 /** The {@link PermissionPresetService} config: preset table and composition default. */
 export interface Config {
   /**
-   * The preset table: name 閳?knob bundle. Defaults to `workspace-write`
+   * The preset table: name → knob bundle. Defaults to `workspace-write`
    * (workspace-write + ask) and `danger-full-access` (danger-full-access +
    * never). The name `custom` is reserved for the derived not-a-preset state.
    */
@@ -212,13 +212,13 @@ export class PermissionPresetService extends Service {
 
   constructor(ctx: Context, config: Config) {
     super(ctx, 'permissionPresets')
-    // The schema defaulted the table 閳?the cast records that runtime fact.
+    // The schema defaulted the table — the cast records that runtime fact.
     this.presets = config.presets as Record<string, PresetSpec>
     if (CUSTOM_PRESET in this.presets) {
       throw new Error(`permission: "${CUSTOM_PRESET}" is reserved for the derived not-a-preset state and cannot name a table entry`)
     }
     if (ctx.shell.sandboxMode === undefined) {
-      throw new Error('permission: the mounted bash executor does not confine (no sandboxMode) 閳?presets bundle a sandbox mode, so composing this plugin over an unconfined executor is a misconfiguration')
+      throw new Error('permission: the mounted bash executor does not confine (no sandboxMode) — presets bundle a sandbox mode, so composing this plugin over an unconfined executor is a misconfiguration')
     }
     const inferredDefault = this.derive(EMPTY_KNOBS)
     const defaultPreset = config.defaultPreset ?? inferredDefault
@@ -283,8 +283,8 @@ export class PermissionPresetService extends Service {
         description: 'Switch the permission preset (sandbox mode + approval policy)',
         input: { hint: '<preset>' },
         // No settlement text labels its value with this command's own name: a
-        // surface that renders `name 璺?text` (the web command row) would
-        // otherwise read `permission 璺?Permission preset: workspace-write.`
+        // surface that renders `name · text` (the web command row) would
+        // otherwise read `permission · Permission preset: workspace-write.`
         handler: ({ agent, rawInput }) => {
           const name = rawInput.trim()
           if (name === '') {

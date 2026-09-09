@@ -21,6 +21,9 @@
       "path": "../../subprocess/subprocess"
     },
     {
+      "path": "../../shell/shell"
+    },
+    {
       "path": "../../interaction/user-approval"
     }
   ]

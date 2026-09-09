@@ -28,3 +28,119 @@ export interface EnvVersionProbe {
   /** Why no version was obtained: unresolved, denied by the approval decision, nonzero exit, or deadline. */
   error?: string
 }
+
+/**
+ * One read-only source of installed-application metadata. The id is stable and names the
+ * registry hive/view or the AppX package list, so an entry's identity never depends on its
+ * mutable display name.
+ */
+export type AppSourceId =
+  | 'registry-machine'
+  | 'registry-machine-x86'
+  | 'registry-user'
+  | 'app-paths-machine'
+  | 'app-paths-machine-x86'
+  | 'appx'
+
+/**
+ * What one source returned. `ok` means the source was read completely; `partial` means it was
+ * read but the tool could not trust every row; `unavailable` means nothing was read and the
+ * source must not be reported as an absence.
+ */
+export type AppSourceStatus = 'ok' | 'partial' | 'unavailable'
+
+/** One source's outcome inside an `apps_inspect` result. */
+export interface AppSourceReport {
+  /** The source that was read. */
+  id: AppSourceId
+  status: AppSourceStatus
+  /** Rows the source contributed before filtering; 0 when it was unavailable. */
+  count: number
+  /** Why the source was not fully read, when it was not. */
+  note?: string
+}
+
+/** Which registry scope an entry belongs to; `user` entries are current-user writable. */
+export type AppScope = 'machine' | 'user'
+
+/** Whether an entry is an application or a registry artifact of one. */
+export type AppKind = 'app' | 'component' | 'update' | 'child'
+
+/** Entry architecture when the source states it, else `unknown`. */
+export type AppArch = 'x86' | 'x64' | 'arm64' | 'unknown'
+
+/** The installer family the entry's metadata indicates. */
+export type AppInstaller = 'msi' | 'exe' | 'appx' | 'unknown'
+
+/**
+ * How much weight an entry deserves: machine-scope registry data is `high`, App Paths and AppX
+ * are `medium`, and current-user registry data is `low` because any process running as this
+ * user can write it. Instruction-like text in any field lowers the entry one step.
+ */
+export type AppConfidence = 'high' | 'medium' | 'low'
+
+/**
+ * One installed application or registry artifact. Every string field is sanitized third-party
+ * data: control, bidirectional-override, and zero-width characters are removed, whitespace is
+ * collapsed, and long values are truncated. `UninstallString` and `QuietUninstallString` are
+ * never part of this type; only {@link InstalledApp.hasUninstaller} reports their presence.
+ */
+export interface InstalledApp {
+  /** Stable identity derived from `sourceId` and `sourceKey`; never derived from the name. */
+  id: string
+  /** Display name (or App Paths launch name) after sanitization. */
+  name: string
+  version?: string
+  publisher?: string
+  installLocation?: string
+  arch: AppArch
+  scope: AppScope
+  kind: AppKind
+  installer: AppInstaller
+  /** Whether an uninstall command exists; the command text itself is never returned. */
+  hasUninstaller: boolean
+  sourceId: AppSourceId
+  /** The source's own key for this entry: registry subkey name or AppX package full name. */
+  sourceKey: string
+  confidence: AppConfidence
+  /** Sanitized field names whose value was truncated at the field bound. */
+  truncatedFields?: string[]
+}
+
+/** What the inventory covers and what it cannot see. */
+export interface AppInventoryCoverage {
+  /** Sources this tool reads when they are available. */
+  includes: string[]
+  /** Classes of software this inventory can never see. */
+  excludes: string[]
+  /** Sources that were not read this call, named with the reason. */
+  notCovered: string[]
+}
+
+/** When and where one inventory snapshot was collected. */
+export interface AppInventorySnapshot {
+  /** Content id of the returned entry set, derived from the entry ids. */
+  id: string
+  /** Collection time as an ISO 8601 timestamp. */
+  generatedAt: string
+  /** Collection duration in milliseconds; 0 for a cache hit. */
+  durationMs: number
+  /** `process.platform` the collection ran on. */
+  platform: string
+  /** Whether this snapshot came from the in-process cache rather than a fresh collection. */
+  fromCache: boolean
+}
+
+/** Result of one `apps_inspect` call. */
+export interface AppsInspectResult {
+  snapshot: AppInventorySnapshot
+  sources: AppSourceReport[]
+  apps: InstalledApp[]
+  /** Matching entries before the `limit` was applied. */
+  total: number
+  /** Entries in `apps`; never greater than the requested `limit`. */
+  returned: number
+  /** Whether matching entries were left out by the `limit`. */
+  truncated: boolean
+  coverage: AppInventoryCoverage
+}

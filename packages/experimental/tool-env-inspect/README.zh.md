@@ -9,7 +9,7 @@ kind: "package-reference"
 
 ## 概述
 
-`dsh-experimental-tool-env-inspect` 给模型两个环境工具。`env_inspect` 是只读的：接收一组命令名，对每个名字回答 `PATH` 上存在哪些可执行文件——第一个命中就是 shell 会执行的那个——或该命令未安装；解析在进程内对文件系统完成，不执行任何东西。`env_version` 是本包唯一的执行面：解析每个名字、向审批 seam 请求一次性允许/拒绝决定、然后在有死线限制和输出界控制的子进程里运行获批可执行文件的 `--version`。两者都是实验性的：被排除在正式发布之外，不带稳定性承诺，只被显式包含它们的组合挂载。本包是环境管理器规划的读取与探测切片；下载、安装与验证留在外面。
+`dsh-experimental-tool-env-inspect` 给模型三个环境工具。`env_inspect` 是只读的：接收一组命令名，对每个名字回答 `PATH` 上存在哪些可执行文件——第一个命中就是 shell 会执行的那个——或该命令未安装；解析在进程内对文件系统完成，不执行任何东西。`env_version` 是本包唯一的执行面：解析每个名字、向审批 seam 请求一次性允许/拒绝决定、然后在有死线限制和输出界控制的子进程里运行获批可执行文件的 `--version`。`apps_inspect` 经可选的 shell seam 从只读的 Windows 清单来源枚举已安装应用程序——机器级与用户级注册表卸载项、App Paths 启动名，以及当前用户的 AppX/MSIX 包；它从不运行发现到的程序，也从不返回卸载命令。三者都是实验性的：被排除在正式发布之外，不带稳定性承诺，只被显式包含它们的组合挂载。本包是环境管理器规划的读取与探测切片；下载、安装与验证留在外面。
 
 ## 目录
 
@@ -29,11 +29,11 @@ kind: "package-reference"
 
 ### 何时选择
 
-当组合需要以只读方式探测已安装依赖时选择它。需要版本号、`PATH` 之外的已装程序清单、或任何改变机器状态的能力时请避开——本工具只解析名字，到此为止。
+当组合需要以只读方式探测已安装依赖时选择它：`env_inspect` 解析 `PATH` 上的名字，`env_version` 增加受审批门禁的版本探测，`apps_inspect` 在 Windows 上枚举 `PATH` 之外的已安装应用程序。需要包管理器清单或任何改变机器状态的能力时请避开。
 
 ### 最小配置
 
-三个上限都是必填项、没有默认值：省略任何一项的组合会在加载时失败，超出范围的值同样在加载时被拒绝。`maxCommands` 与 `versionMaxCommands` 分别约束一次调用的不同命令名数量——对 `env_version` 而言这也是每次调用的审批决定与子进程数量上限——`versionTimeoutMs` 是单个 `--version` 子进程的死线。
+每个上限都是必填项、没有默认值：省略任何一项的组合会在加载时失败，超出范围的值同样在加载时被拒绝。`maxCommands` 与 `versionMaxCommands` 分别约束一次调用的不同命令名数量——对 `env_version` 而言这也是每次调用的审批决定与子进程数量上限——`versionTimeoutMs` 是单个 `--version` 子进程的死线。`appsDefaultLimit` 是模型省略 `limit` 时 `apps_inspect` 返回的条目数，`appsMaxLimit` 是一次调用可用的最大 `limit`，`appsCacheTtlMs` 是清单快照的缓存存活时间（`0` 关闭缓存），`appsTimeoutMs` 是一次清单采集运行的死线。
 
 ```yaml
 - name: '@deepseek-ai/dsh-experimental-tool-env-inspect'
@@ -41,6 +41,10 @@ kind: "package-reference"
     maxCommands: 8
     versionMaxCommands: 4
     versionTimeoutMs: 15000
+    appsDefaultLimit: 20
+    appsMaxLimit: 100
+    appsCacheTtlMs: 60000
+    appsTimeoutMs: 30000
 ```
 
 | 字段 | 默认值 | 含义 |
@@ -48,12 +52,18 @@ kind: "package-reference"
 | `maxCommands` | 必填 | 一次 `env_inspect` 调用可探测的不同命令名数量；接受范围 1-64 |
 | `versionMaxCommands` | 必填 | 一次 `env_version` 调用可探测的不同命令名数量；接受范围 1-32 |
 | `versionTimeoutMs` | 必填 | 单个 `env_version` 子进程死线（毫秒）；接受范围 1000-120000 |
+| `appsDefaultLimit` | 必填 | 省略 `limit` 时一次 `apps_inspect` 调用返回的已安装应用条目数；接受范围 1-`appsMaxLimit` |
+| `appsMaxLimit` | 必填 | 一次 `apps_inspect` 调用可用的最大 `limit`；接受范围 1-200 |
+| `appsCacheTtlMs` | 必填 | 已安装应用快照的缓存存活时间（毫秒）；`0` 关闭缓存；接受范围 0-3600000 |
+| `appsTimeoutMs` | 必填 | 一次已安装应用采集运行的死线（毫秒）；接受范围 1000-120000 |
 
 ### 每次调用做什么
 
 两个工具都接收裸命令名——不是路径、不是参数——并拒绝空白名与路径形名字。`env_inspect` 按调用方 `PATH` 顺序解析每个不同的名字：Windows 走 `PATHEXT` 后缀，POSIX 检查可执行位。结果按请求顺序为每个命令携带一条条目，含 `PATH` 顺序的全部命中路径，渲染文本给出首个命中或 `not found`。
 
 `env_version` 经子进程 seam 解析每个名字，向审批 seam 请求一次性决定（`allowed-once` 才会运行探测；任何其他结果——包括 `never` 会话策略或缺失应答者——报告 `denied by approval decision`），然后以 `versionTimeoutMs` 死线、树级中止和 4096 字节 stdout/stderr 捕获运行 `<executable> --version`。非零退出报告退出码与捕获的 stderr；超时报告超时。本包注入 `approval` 与 `subprocess`，因此省略任一服务的组合会在注入时失败。
+
+`apps_inspect` 每次调用向审批 seam 请求一次决定，然后经可选的 `ctx.shell` 服务运行一个固定的只读 PowerShell 脚本。脚本读取机器级与用户级卸载键、机器级 App Paths 键以及当前用户的 AppX 包，输出一个 JSON 对象；工具解析它、为每个条目分类（`kind`、`installer`、`arch`、`confidence`）、清洗每个字符串字段，并返回受界的一页。`UninstallString` 与 `QuietUninstallString` 永不离开本包——只报告 `hasUninstaller`。每个结果都带来源及其状态，对读不到的内容给出 `coverage.notCovered`，并报告 `total`、`returned` 与 `truncated`。在非 Windows 主机上，或没有挂载 shell 执行器时，结果显式标记为不可用，而不是空列表。由于 shell 服务在每次调用时解析，没有它的组合仍能加载。
 
 -----
 
@@ -98,7 +108,7 @@ kind: "package-reference"
 
 #### 模型看到什么
 
-模型会看到生成的 [`env_inspect` schema](../../../docs/tool-catalog.zh.md#deepseek-aidsh-experimental-tool-env-inspect) 与 [`env_version` schema](../../../docs/tool-catalog.zh.md#deepseek-aidsh-experimental-tool-env-inspect)：必填的 `commands` 裸命令名数组，由按请求顺序的 `probes` 数组（inspect 的 `{ command, paths }` 条目、version 的 `{ command, path?, version?, error? }` 条目）回答。描述说明了只读保证、逐探测的审批门禁，以及 shell 内建命令与别名不可见。
+模型会看到生成的 [`env_inspect` schema](../../../docs/tool-catalog.zh.md#deepseek-aidsh-experimental-tool-env-inspect) 与 [`env_version` schema](../../../docs/tool-catalog.zh.md#deepseek-aidsh-experimental-tool-env-inspect)：必填的 `commands` 裸命令名数组，由按请求顺序的 `probes` 数组（inspect 的 `{ command, paths }` 条目、version 的 `{ command, path?, version?, error? }` 条目）回答。描述说明了只读保证、逐探测的审批门禁，以及 shell 内建命令与别名不可见。[`apps_inspect` schema](../../../docs/tool-catalog.zh.md#deepseek-aidsh-experimental-tool-env-inspect) 暴露可选的 `query`、`source`、`scope`、`kind` 与 `limit` 过滤，并回答快照、逐来源报告、受界的 `apps` 数组与覆盖块；其描述说明条目是不可信元数据、卸载命令永不返回，以及读不到的来源并不代表不存在。
 
 #### Token 影响
 
@@ -131,6 +141,8 @@ token 用量随渲染摘要增长——每命令一行——而不是完整路�
 
 - **仅 PATH 可执行文件**——shell 内建、别名与函数不可见；只以 shell 特性存在的命令会读作 `not found`。
 - **版本探测会运行程序**——`env_version` 执行每个获批的解析结果并带 `--version` 参数；每次运行都由一次性审批决定门禁，并在 `never` 策略或无应答者时确定性关闭，但它仍是执行。
+- **清单仅限 Windows 且不是普查**——`apps_inspect` 读取注册表卸载项、App Paths 与当前用户的 AppX 包；便携应用、开始菜单快捷方式、其他用户的 AppX 注册以及包管理器清单不在范围内，并会在 `coverage.excludes` 中列出。在任何其他平台、或没有挂载 shell 执行器时，结果是不可用而不是空列表。
+- **清单元数据是第三方文本**——注册表与 AppX 字段由安装器写入，用户级条目可被任何以该用户身份运行的进程写入；值会经清洗、长度截断，并标注作用域与置信度，类指令文本会降低条目置信度而不会被解释。
 - **无安装流程**——下载、来源验证、安装与回滚不在范围内；除运行获批的 `--version` 探测外，本包从不改变机器状态。
 - **实验性且默认不挂载**——本包被排除在正式发布之外，没有任何 shipped profile 挂载它；部署必须显式添加。
 
@@ -144,6 +156,6 @@ token 用量随渲染摘要增长——每命令一行——而不是完整路�
 
 #### 未来：从检查到安装
 
-自然的后续切片是版本探测（需要审批门禁的执行面）、`PATH` 之外的已装程序清单、以及安装器规划的 propose-confirm-install-verify 流程。每一步都会增加审批面，应各自作为独立切片落地。
+自然的后续切片是包管理器清单（`winget`、`chocolatey`、`scoop`、`npm`、`pip`，每个都带自己的审批门禁执行面）、作为安装验证原语的快照与差异、以及安装器规划的 propose-confirm-install-verify 流程。每一步都会增加审批面，应各自作为独立切片落地。
 
 </details>

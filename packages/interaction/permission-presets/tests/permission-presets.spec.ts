@@ -232,7 +232,7 @@ describe('PermissionPresetService', () => {
     expect(ctx.permissionPresets.current(session)).toBe('danger-full-access')
   })
 
-  it('a knob state matching no table entry derives custom 閳?a state, not an error', async () => {
+  it('a knob state matching no table entry derives custom — a state, not an error', async () => {
     const ctx = await mounted()
     const session = freshSession('sess-custom')
     session.append('sandbox/mode', { mode: 'read-only' })

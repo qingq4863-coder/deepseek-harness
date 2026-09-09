@@ -563,17 +563,25 @@ const TOOL_PACKAGES: ToolPackage[] = [
     pkg: '@deepseek-ai/dsh-experimental-tool-env-inspect',
     dir: 'tool-env-inspect',
     source: 'packages/experimental/tool-env-inspect/src/index.ts',
-    requires: ['ctx.tools', 'ctx.approval', 'ctx.subprocess'],
+    requires: ['ctx.tools', 'ctx.approval', 'ctx.subprocess', 'optional ctx.shell (apps_inspect)'],
     writes: ['tool/call', 'tool/result'],
     async mount(ctx) {
       await ctx.plugin(SessionStore)
       await ctx.plugin(ApprovalService)
       await ctx.plugin(LocalSubprocessRuntime)
       ctx.on('approval/request', () => Promise.resolve('allowed-once'))
-      await ctx.plugin(ToolEnvInspect, { maxCommands: 8, versionMaxCommands: 4, versionTimeoutMs: 15000 })
+      await ctx.plugin(ToolEnvInspect, {
+        maxCommands: 8,
+        versionMaxCommands: 4,
+        versionTimeoutMs: 15000,
+        appsDefaultLimit: 5,
+        appsMaxLimit: 20,
+        appsCacheTtlMs: 60000,
+        appsTimeoutMs: 30000,
+      })
     },
     note:
-      'env_inspect and env_version are the environment probe of the installer plan: command names in, executable paths on PATH out, and optionally one approval-gated, time-limited --version run per approved name. The package is experimental and excluded from official releases, and no shipped profile mounts it; the cataloged bounds are the catalog\'s own choices of the required config.',
+      'env_inspect and env_version are the environment probe of the installer plan: command names in, executable paths on PATH out, and optionally one approval-gated, time-limited --version run per approved name. apps_inspect enumerates installed applications from read-only Windows registry, App Paths, and AppX sources through the optional shell seam; it never runs a discovered program and never returns uninstall commands. The package is experimental and excluded from official releases, and no shipped profile mounts it; the cataloged bounds are the catalog\'s own choices of the required config.',
   },
   {
     pkg: '@deepseek-ai/dsh-tool-workflow',

@@ -47,7 +47,7 @@ describe('ToolRuntime', () => {
       description: 'echo arguments back',
       parameters: { type: 'object', properties: { text: { type: 'string' } } },
     }])
-    // schemas() result must not leak execute 閳?ToolSchema deliberately has no
+    // schemas() result must not leak execute — ToolSchema deliberately has no
     // 'execute' key, so widen through unknown to probe for the absent property
     expect((ctx.tools.schemas()[0] as unknown as Record<string, unknown>).execute).toBeUndefined()
 
@@ -55,7 +55,7 @@ describe('ToolRuntime', () => {
     expect(assembly.tools.map(t => t.name)).toEqual(['echo'])
   })
 
-  it('schemas() drops host callbacks 閳?they must never reach the model', async () => {
+  it('schemas() drops host callbacks — they must never reach the model', async () => {
     const ctx = await setup()
     // Tool definitions contain output, finalization, execution, and presentation
     // callbacks. schemas() is an explicit allowlist so none can reach the model.
@@ -148,7 +148,7 @@ describe('ToolRuntime', () => {
     expect(observed).toBe('low')
   })
 
-  it('schemas() excludes timeoutMs 閳?the budget must never reach the model', async () => {
+  it('schemas() excludes timeoutMs — the budget must never reach the model', async () => {
     const ctx = await setup()
     ctx.tools.register(defineContentToolFixture({
       name: 'budgeted', description: 'has a budget', parameters: {}, timeoutMs: 5_000,
@@ -653,7 +653,7 @@ describe('ToolRuntime', () => {
         return 'terminal'
       },
     })
-    // A composite that forwards the marker from the nested result 閳?the Code
+    // A composite that forwards the marker from the nested result — the Code
     // Mode dispatch shape. A recovering composite (nested failure swallowed)
     // has no marker to forward: ToolExecutionFailure types concludesTurn as
     // never, so only an authoritative nested success can conclude the run.
@@ -900,7 +900,7 @@ describe('ToolRuntime', () => {
       expect(result.content[0]).toMatchObject({ text: 'Error: tool "echo" requires approval, but no approval channel is available' })
     })
 
-    it('denies an agent-less execution without asking 閳?nothing to route or audit through', async () => {
+    it('denies an agent-less execution without asking — nothing to route or audit through', async () => {
       const ctx = await approvalSetup()
       let asked = false
       ctx.on('approval/request', () => {
@@ -2240,7 +2240,7 @@ describe('defineTool / schema DSL', () => {
     void tool
   })
 
-  it('registry round-trips a defineTool definition (register閳姱chemas閳姀xecute)', async () => {
+  it('registry round-trips a defineTool definition (register→schemas→execute)', async () => {
     const ctx = await setup()
     ctx.tools.register(defineTool({
       name: 'roundtrip',
@@ -2754,7 +2754,7 @@ describe('defineTool validation (the runtime-validation Agent Note, part 1)', ()
         return typeof args
       },
     })
-    // Missing the "required" path 閳?but raw tools validate their own input, so
+    // Missing the "required" path — but raw tools validate their own input, so
     // this reaches execute rather than being rejected by the harness.
     const result = await ctx.tools.execute({ signal: testToolSignal, callId: ToolCallId('c1'), name: 'raw', arguments: {} })
     expect(result.isError).toBe(false)
@@ -2820,7 +2820,7 @@ describe('defineTool presentation (presentCall / presentResult)', () => {
       parameters: { path: { type: 'string', required: true }, n: { type: 'number' } },
       async execute() { return [{ type: 'text', text: 'ok' }] },
       presentCall(args) {
-        // args is typed { path: string; n?: number } 閳?zero casts.
+        // args is typed { path: string; n?: number } — zero casts.
         expectTypeOf(args).toEqualTypeOf<{ path: string; n?: number }>()
         return { card: 'generic', title: `Open ${args.path}`, kind: 'read', rawInput: args.path }
       },
