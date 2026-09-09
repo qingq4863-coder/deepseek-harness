@@ -16,7 +16,9 @@ import { win32 } from 'node:path'
 import type { ShellExecutor, ShellRunResult } from '@deepseek-ai/dsh-shell'
 import type {
   AppArch,
+  AppChangedEntry,
   AppConfidence,
+  AppFieldChange,
   AppInventoryCoverage,
   AppInstaller,
   AppKind,
@@ -294,6 +296,65 @@ export function appId(sourceId: AppSourceId, sourceKey: string): string {
 export function snapshotId(apps: readonly InstalledApp[]): string {
   const ids = apps.map(app => app.id).sort()
   return createHash('sha256').update(ids.join('\n')).digest('hex').slice(0, 16)
+}
+
+/** Fields compared when the same stable id appears in both observations. */
+const COMPARED_FIELDS = ['name', 'version', 'publisher', 'installLocation'] as const
+
+/** One comparison's outcome: entries only in the later set, only in the earlier one, and changed. */
+export interface AppDiff {
+  added: InstalledApp[]
+  removed: InstalledApp[]
+  changed: AppChangedEntry[]
+}
+
+/**
+ * Compare two observations by stable entry id. An id present only later is `added`, only earlier
+ * is `removed`, and present in both with a different compared field is `changed`. Identity never
+ * depends on a display name, so a renamed application still reads as one entry.
+ * @param from - the earlier observation.
+ * @param to - the later observation.
+ * @returns the three categories, each ordered by name then id.
+ */
+export function diffApps(from: readonly InstalledApp[], to: readonly InstalledApp[]): AppDiff {
+  const before = new Map(from.map(app => [app.id, app]))
+  const after = new Map(to.map(app => [app.id, app]))
+  const added = to.filter(app => !before.has(app.id))
+  const removed = from.filter(app => !after.has(app.id))
+  const changed: AppChangedEntry[] = []
+  for (const [id, beforeApp] of before) {
+    const afterApp = after.get(id)
+    if (afterApp === undefined) continue
+    const changes: AppFieldChange[] = []
+    for (const field of COMPARED_FIELDS) {
+      if (beforeApp[field] === afterApp[field]) continue
+      changes.push({
+        field,
+        ...beforeApp[field] !== undefined ? { before: beforeApp[field] } : {},
+        ...afterApp[field] !== undefined ? { after: afterApp[field] } : {},
+      })
+    }
+    if (changes.length > 0) changed.push({ id, name: afterApp.name, sourceId: afterApp.sourceId, changes })
+  }
+  const byName = (left: InstalledApp, right: InstalledApp): number =>
+    left.name.localeCompare(right.name, 'en', { sensitivity: 'base' }) || left.id.localeCompare(right.id)
+  added.sort(byName)
+  removed.sort(byName)
+  changed.sort((left, right) => left.name.localeCompare(right.name, 'en', { sensitivity: 'base' }) || left.id.localeCompare(right.id))
+  return { added, removed, changed }
+}
+
+/**
+ * Whether two observations read the same set of sources with the same status. A difference means
+ * an entry may appear added or removed because a source was not read.
+ * @param from - the earlier observation's source reports.
+ * @param to - the later observation's source reports.
+ * @returns true when any source id or status differs.
+ */
+export function coverageDiffers(from: readonly AppSourceReport[], to: readonly AppSourceReport[]): boolean {
+  const key = (reports: readonly AppSourceReport[]): string =>
+    reports.map(report => `${report.id}:${report.status}`).sort().join('\n')
+  return key(from) !== key(to)
 }
 
 /** Collect the sanitized names of fields that were truncated. */

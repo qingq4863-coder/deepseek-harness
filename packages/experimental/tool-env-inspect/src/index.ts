@@ -18,14 +18,14 @@ import type {} from '@deepseek-ai/dsh-subprocess'
 import type {} from '@deepseek-ai/dsh-user-approval'
 import z from '@deepseek-ai/schemastery'
 import { defineTool } from '@deepseek-ai/dsh-tools'
-import { registerAppsInspect } from './apps-tool.ts'
+import { registerAppsTools } from './apps-tool.ts'
 import type { EnvCommandProbe, EnvVersionProbe } from './types.ts'
 
 export type * from './types.ts'
-export { APPS_INVENTORY_SCRIPT, APP_INVENTORY_COVERAGE, APP_SOURCE_IDS, appId, buildApps, classifyArch, classifyInstaller, classifyKind, createInventoryReader, notCoveredFor, parseInventoryOutput, sanitizeField, snapshotId, unavailableSources } from './apps.ts'
-export type { InventoryCollection, InventoryReader, InventoryReaderOptions, RawInventory, RawInventoryRow, SanitizedField } from './apps.ts'
-export { filterApps, registerAppsInspect, renderApps } from './apps-tool.ts'
-export type { AppsInspectArgs, AppsInspectConfig } from './apps-tool.ts'
+export { APPS_INVENTORY_SCRIPT, APP_INVENTORY_COVERAGE, APP_SOURCE_IDS, appId, buildApps, classifyArch, classifyInstaller, classifyKind, coverageDiffers, createInventoryReader, diffApps, notCoveredFor, parseInventoryOutput, sanitizeField, snapshotId, unavailableSources } from './apps.ts'
+export type { AppDiff, InventoryCollection, InventoryReader, InventoryReaderOptions, RawInventory, RawInventoryRow, SanitizedField } from './apps.ts'
+export { filterApps, registerAppsTools, renderApps, renderDiff } from './apps-tool.ts'
+export type { AppsDiffArgs, AppsInspectArgs, AppsInspectConfig } from './apps-tool.ts'
 
 export const name = 'tool-env-inspect'
 export const inject = ['tools', 'approval', 'subprocess']
@@ -90,6 +90,11 @@ export interface Config {
    * not read; the accepted range is 1000-120000, and a value outside it fails at load.
    */
   appsTimeoutMs: number
+  /**
+   * Required deployment choice for how many named `apps_snapshot` captures one composition keeps
+   * before evicting the oldest. The accepted range is 1-50, and a value outside it fails at load.
+   */
+  appsMaxSnapshots: number
 }
 
 /** Schemastery configuration for the env-inspect tool consumer. */
@@ -101,6 +106,7 @@ export const Config: z<Config> = z.object({
   appsMaxLimit: z.number().required(),
   appsCacheTtlMs: z.number().required(),
   appsTimeoutMs: z.number().required(),
+  appsMaxSnapshots: z.number().required(),
 })
 
 function pathDirectories(env: NodeJS.ProcessEnv): string[] {
@@ -216,6 +222,9 @@ export function apply(ctx: Context, config: Config): void {
   }
   if (!Number.isInteger(config.appsTimeoutMs) || config.appsTimeoutMs < 1000 || config.appsTimeoutMs > 120000) {
     throw new Error('tool-env-inspect config.appsTimeoutMs must be an integer between 1000 and 120000')
+  }
+  if (!Number.isInteger(config.appsMaxSnapshots) || config.appsMaxSnapshots < 1 || config.appsMaxSnapshots > 50) {
+    throw new Error('tool-env-inspect config.appsMaxSnapshots must be an integer between 1 and 50')
   }
   ctx.tools.register(defineTool({
     name: 'env_inspect',
@@ -414,5 +423,5 @@ export function apply(ctx: Context, config: Config): void {
     presentCall: args => ({ card: 'generic', title: 'Probe command versions', kind: 'other', rawInput: args.commands }),
   }))
 
-  registerAppsInspect(ctx, config)
+  registerAppsTools(ctx, config)
 }

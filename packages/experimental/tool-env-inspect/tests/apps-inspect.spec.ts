@@ -30,6 +30,7 @@ const APPS_CONFIG: AppsInspectConfig = {
   appsMaxLimit: 5,
   appsCacheTtlMs: 0,
   appsTimeoutMs: 15000,
+  appsMaxSnapshots: 3,
 }
 
 function resultText(result: { content: { type: string; text?: string }[] }): string {
@@ -498,11 +499,11 @@ describe('apps_inspect tool', () => {
     return ctx
   }
 
-  function call(ctx: Context, args: Record<string, unknown> = {}) {
+  function call(ctx: Context, args: Record<string, unknown> = {}, name = 'apps_inspect') {
     return ctx.tools.execute({
       signal: new AbortController().signal,
       callId: ToolCallId('apps'),
-      name: 'apps_inspect',
+      name,
       arguments: args,
       agent: agent(ctx),
     })
@@ -571,12 +572,12 @@ describe('apps_inspect tool', () => {
 
   it('keeps capability metadata off the model-facing schema', async () => {
     const ctx = await setup()
-    const schemas = ctx.tools.schemas().filter(schema => schema.name.startsWith('env_') || schema.name === 'apps_inspect')
-    expect(schemas.map(schema => schema.name).sort()).toEqual(['apps_inspect', 'env_inspect', 'env_version'])
+    const schemas = ctx.tools.schemas().filter(schema => schema.name.startsWith('env_') || schema.name.startsWith('apps_'))
+    expect(schemas.map(schema => schema.name).sort()).toEqual(['apps_diff', 'apps_inspect', 'apps_snapshot', 'env_inspect', 'env_version'])
     expect(JSON.stringify(schemas)).not.toContain('capability')
   })
 
-  it('unregisters apps_inspect when its contributing fiber is disposed (HMR safety)', async () => {
+  it('unregisters every apps tool when its contributing fiber is disposed (HMR safety)', async () => {
     const ctx = new Context()
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(ToolRuntime)
@@ -585,8 +586,248 @@ describe('apps_inspect tool', () => {
     ctx.provide('subprocess', { resolveExecutable: async () => 'stub', spawn: () => ({ collected: {}, done: Promise.resolve({ exitCode: 0, signal: null }) }) })
     context = ctx
     const fiber = await ctx.plugin(ToolEnvInspect, { maxCommands: 8, versionMaxCommands: 4, versionTimeoutMs: 5000, ...APPS_CONFIG })
-    expect(ctx.tools.schemas().some(schema => schema.name === 'apps_inspect')).toBe(true)
+    const names = (): string[] => ctx.tools.schemas().map(schema => schema.name).filter(name => name.startsWith('apps_')).sort()
+    expect(names()).toEqual(['apps_diff', 'apps_inspect', 'apps_snapshot'])
     await fiber.dispose()
-    expect(ctx.tools.schemas().some(schema => schema.name === 'apps_inspect')).toBe(false)
+    expect(names()).toEqual([])
+  })
+
+  /** A shell that answers each collection from a scripted list, in call order. */
+  function scriptedShell(runs: ScriptedRun[]): { shell: unknown; commands: string[] } {
+    const commands: string[] = []
+    let index = 0
+    return {
+      commands,
+      shell: {
+        resolve: (request: { command: string; timeoutMs?: number; stdoutMaxBytes?: number }) => ({
+          command: request.command,
+          workdir: process.cwd(),
+          timeoutMs: request.timeoutMs ?? 1000,
+          stdoutMaxBytes: request.stdoutMaxBytes ?? 0,
+          sandboxPolicy: undefined,
+        }),
+        async run(spec: { command: string }): Promise<ShellRunResult> {
+          commands.push(spec.command)
+          const scripted = runs[Math.min(index++, runs.length - 1)] ?? {}
+          return {
+            exitCode: 0,
+            signal: null,
+            timedOut: false,
+            aborted: false,
+            timeoutMs: 1000,
+            stdout: { text: scripted.stdout ?? '', truncated: false },
+            stderr: { text: scripted.stderr ?? '', truncated: false },
+          }
+        },
+      },
+    }
+  }
+
+  const firstInventory = inventoryOutput(
+    [{ id: 'registry-machine', status: 'ok', count: 2 }],
+    [
+      { sourceId: 'registry-machine', sourceKey: '{1}', scope: 'machine', values: { DisplayName: 'Contoso Editor', DisplayVersion: '4.2' } },
+      { sourceId: 'registry-machine', sourceKey: '{2}', scope: 'machine', values: { DisplayName: 'Fabrikam Reader', DisplayVersion: '1.0' } },
+    ],
+  )
+  const secondInventory = inventoryOutput(
+    [{ id: 'registry-machine', status: 'ok', count: 2 }],
+    [
+      { sourceId: 'registry-machine', sourceKey: '{1}', scope: 'machine', values: { DisplayName: 'Contoso Editor', DisplayVersion: '5.0' } },
+      { sourceId: 'registry-machine', sourceKey: '{3}', scope: 'machine', values: { DisplayName: 'Northwind Writer', DisplayVersion: '1.0' } },
+    ],
+  )
+
+  it('captures a named snapshot and refuses to store an unread baseline', async () => {
+    const { shell, commands } = scriptedShell([{ stdout: firstInventory }])
+    const ctx = await setup({ shell })
+    if (process.platform !== 'win32') return
+    const captured = await call(ctx, { name: 'before' }, 'apps_snapshot')
+    expect(captured.isError).toBe(false)
+    expect(resultText(captured)).toContain('Captured snapshot "before": 2 entries')
+    expect(commands).toHaveLength(1)
+
+    const unread = scriptedShell([{ stdout: '{}' }])
+    const unreadCtx = await setup({ shell: unread.shell })
+    const refused = await call(unreadCtx, { name: 'broken' }, 'apps_snapshot')
+    expect(refused.isError).toBe(true)
+    expect(resultText(refused)).toContain('no inventory source could be read, so nothing was stored')
+    const missing = await call(unreadCtx, { from: 'broken' }, 'apps_diff')
+    expect(missing.isError).toBe(true)
+    expect(resultText(missing)).toContain('unknown snapshot "broken"')
+  })
+
+  it('rejects a snapshot name that is not a safe key and a denied capture', async () => {
+    const ctx = await setup({ approval: fakeApproval(['rejected']), shell: scriptedShell([{ stdout: firstInventory }]).shell })
+    for (const name of ['', 'has space', 'a'.repeat(65), 'semi;colon']) {
+      const result = await call(ctx, { name }, 'apps_snapshot')
+      expect(result.isError).toBe(true)
+      expect(resultText(result)).toContain('invalid name')
+    }
+    const denied = await call(ctx, { name: 'before' }, 'apps_snapshot')
+    expect(denied.isError).toBe(true)
+    expect(resultText(denied)).toContain('denied by approval decision (rejected); nothing was stored')
+  })
+
+  it('diffs a snapshot against the machine, reporting added, removed, and changed entries', async () => {
+    const { shell, commands } = scriptedShell([{ stdout: firstInventory }, { stdout: secondInventory }])
+    const asks: ApprovalRequest[] = []
+    const ctx = await setup({ approval: fakeApproval(['allowed-once', 'allowed-once'], asks), shell })
+    if (process.platform !== 'win32') return
+    await call(ctx, { name: 'before' }, 'apps_snapshot')
+    const result = await call(ctx, { from: 'before', limit: 5 }, 'apps_diff')
+    expect(result.isError).toBe(false)
+    const text = resultText(result)
+    expect(text).toContain('diff "before" → "now": 1 added, 1 removed, 1 changed.')
+    expect(text).toContain('+ Northwind Writer — 1.0 — registry-machine')
+    expect(text).toContain('- Fabrikam Reader — 1.0 — registry-machine')
+    expect(text).toContain('~ Contoso Editor — version: 4.2 → 5.0')
+    expect(commands).toHaveLength(2)
+    expect(asks.map(ask => ask.toolName)).toEqual(['apps_snapshot', 'apps_diff'])
+  })
+
+  it('diffs two stored snapshots without reading the machine and bounds the page', async () => {
+    const { shell, commands } = scriptedShell([{ stdout: firstInventory }, { stdout: secondInventory }])
+    const ctx = await setup({ approval: fakeApproval(['allowed-once', 'allowed-once']), shell })
+    if (process.platform !== 'win32') return
+    await call(ctx, { name: 'before' }, 'apps_snapshot')
+    await call(ctx, { name: 'after' }, 'apps_snapshot')
+    const result = await call(ctx, { from: 'before', to: 'after', limit: 1 }, 'apps_diff')
+    expect(result.isError).toBe(false)
+    const text = resultText(result)
+    expect(text).toContain('diff "before" → "after": 1 added, 1 removed, 1 changed.')
+    expect(text).toContain('2 change rows are not shown; raise limit or narrow the snapshots.')
+    expect(commands).toHaveLength(2)
+  })
+
+  it('warns when the two observations did not cover the same sources', async () => {
+    const partial = inventoryOutput(
+      [{ id: 'registry-machine', status: 'ok', count: 1 }, { id: 'registry-user', status: 'unavailable', count: 0, note: 'registry key is not present' }],
+      [{ sourceId: 'registry-machine', sourceKey: '{1}', scope: 'machine', values: { DisplayName: 'Contoso Editor' } }],
+    )
+    const { shell } = scriptedShell([{ stdout: partial }, { stdout: firstInventory }])
+    const ctx = await setup({ approval: fakeApproval(['allowed-once', 'allowed-once']), shell })
+    if (process.platform !== 'win32') return
+    await call(ctx, { name: 'before' }, 'apps_snapshot')
+    const result = await call(ctx, { from: 'before' }, 'apps_diff')
+    const text = resultText(result)
+    expect(text).toContain('did not cover the same sources')
+    expect(text).toContain('not covered: registry-user (snapshot "before")')
+  })
+
+  it('evicts the oldest snapshot past the configured bound', async () => {
+    const { shell } = scriptedShell([{ stdout: firstInventory }])
+    const ctx = await setup({ approval: fakeApproval(['allowed-once', 'allowed-once', 'allowed-once', 'allowed-once']), shell, apps: { appsMaxSnapshots: 2 } })
+    if (process.platform !== 'win32') return
+    await call(ctx, { name: 'one' }, 'apps_snapshot')
+    await call(ctx, { name: 'two' }, 'apps_snapshot')
+    await call(ctx, { name: 'three' }, 'apps_snapshot')
+    const evicted = await call(ctx, { from: 'one' }, 'apps_diff')
+    expect(evicted.isError).toBe(true)
+    expect(resultText(evicted)).toContain('unknown snapshot "one" (known: two, three)')
+  })
+
+  it('fails loud for an unknown diff target and an over-bound limit', async () => {
+    const ctx = await setup({ shell: scriptedShell([{ stdout: firstInventory }]).shell })
+    const unknownFrom = await call(ctx, { from: 'nope' }, 'apps_diff')
+    expect(unknownFrom.isError).toBe(true)
+    expect(resultText(unknownFrom)).toContain('no snapshot has been captured yet')
+    const ctx2 = await setup({ shell: scriptedShell([{ stdout: firstInventory }]).shell })
+    if (process.platform !== 'win32') return
+    await call(ctx2, { name: 'before' }, 'apps_snapshot')
+    const unknownTo = await call(ctx2, { from: 'before', to: 'ghost' }, 'apps_diff')
+    expect(resultText(unknownTo)).toContain('unknown snapshot "ghost"')
+    const badLimit = await call(ctx2, { from: 'before', limit: 99 }, 'apps_diff')
+    expect(resultText(badLimit)).toContain('invalid limit: expected an integer between 1 and 5')
+  })
+})
+
+describe('diffApps, coverageDiffers, and renderDiff', () => {
+  const app = (over: Partial<ToolEnvInspect.InstalledApp> & { id: string; name: string }): ToolEnvInspect.InstalledApp => ({
+    arch: 'unknown',
+    scope: 'machine',
+    kind: 'app',
+    installer: 'unknown',
+    hasUninstaller: false,
+    sourceId: 'registry-machine',
+    sourceKey: `{${over.id}}`,
+    confidence: 'high',
+    ...over,
+  })
+
+  const ref = (name: string): ToolEnvInspect.AppSnapshotRef => ({
+    name,
+    id: 'abc',
+    generatedAt: '2026-09-09T00:00:00.000Z',
+    total: 2,
+    sources: [{ id: 'registry-machine', status: 'ok', count: 2 }],
+  })
+
+  function diffResult(over: Partial<ToolEnvInspect.AppsDiffResult> = {}): ToolEnvInspect.AppsDiffResult {
+    return {
+      from: ref('before'),
+      to: ref('after'),
+      added: [],
+      removed: [],
+      changed: [],
+      total: { added: 0, removed: 0, changed: 0 },
+      returned: { added: 0, removed: 0, changed: 0 },
+      truncated: false,
+      coverageChanged: false,
+      coverage: { ...ToolEnvInspect.APP_INVENTORY_COVERAGE, notCovered: [] },
+      ...over,
+    }
+  }
+
+  it('classifies added, removed, and changed entries by stable id', () => {
+    const before = [app({ id: 'a', name: 'Alpha', version: '1.0' }), app({ id: 'b', name: 'Beta' })]
+    const after = [app({ id: 'a', name: 'Alpha Renamed', version: '2.0' }), app({ id: 'c', name: 'Gamma' })]
+    const diff = ToolEnvInspect.diffApps(before, after)
+    expect(diff.added.map(entry => entry.id)).toEqual(['c'])
+    expect(diff.removed.map(entry => entry.id)).toEqual(['b'])
+    expect(diff.changed).toEqual([{
+      id: 'a',
+      name: 'Alpha Renamed',
+      sourceId: 'registry-machine',
+      changes: [
+        { field: 'name', before: 'Alpha', after: 'Alpha Renamed' },
+        { field: 'version', before: '1.0', after: '2.0' },
+      ],
+    }])
+  })
+
+  it('reports no change for the same entry set and orders rows by name', () => {
+    const entries = [app({ id: 'b', name: 'Beta' }), app({ id: 'a', name: 'Alpha' })]
+    expect(ToolEnvInspect.diffApps(entries, [...entries])).toEqual({ added: [], removed: [], changed: [] })
+    const diff = ToolEnvInspect.diffApps([], [app({ id: 'b', name: 'Beta' }), app({ id: 'a', name: 'Alpha' })])
+    expect(diff.added.map(entry => entry.name)).toEqual(['Alpha', 'Beta'])
+  })
+
+  it('detects a coverage difference only when a source id or status differs', () => {
+    const ok: ToolEnvInspect.AppSourceReport[] = [{ id: 'registry-machine', status: 'ok', count: 1 }]
+    expect(ToolEnvInspect.coverageDiffers(ok, [{ id: 'registry-machine', status: 'ok', count: 9 }])).toBe(false)
+    expect(ToolEnvInspect.coverageDiffers(ok, [{ id: 'registry-machine', status: 'partial', count: 1 }])).toBe(true)
+    expect(ToolEnvInspect.coverageDiffers(ok, [...ok, { id: 'appx', status: 'unavailable', count: 0 }])).toBe(true)
+  })
+
+  it('renders no-change, rows, truncation, coverage, and not-covered lines', () => {
+    expect(ToolEnvInspect.renderDiff(diffResult())).toBe('Installed-application diff "before" → "after": no change.')
+    const rendered = ToolEnvInspect.renderDiff(diffResult({
+      added: [app({ id: 'c', name: 'Gamma', version: '1.0', sourceId: 'registry-user' })],
+      removed: [app({ id: 'b', name: 'Beta' })],
+      changed: [{ id: 'a', name: 'Alpha', sourceId: 'registry-machine', changes: [{ field: 'version', before: '1.0', after: '2.0' }] }],
+      total: { added: 2, removed: 1, changed: 1 },
+      returned: { added: 1, removed: 1, changed: 1 },
+      truncated: true,
+      coverageChanged: true,
+      coverage: { ...ToolEnvInspect.APP_INVENTORY_COVERAGE, notCovered: ['registry-user (snapshot "after")'] },
+    }))
+    expect(rendered).toContain('diff "before" → "after": 2 added, 1 removed, 1 changed.')
+    expect(rendered).toContain('+ Gamma — 1.0 — registry-user')
+    expect(rendered).toContain('- Beta — registry-machine')
+    expect(rendered).toContain('~ Alpha — version: 1.0 → 2.0')
+    expect(rendered).toContain('1 change rows are not shown; raise limit or narrow the snapshots.')
+    expect(rendered).toContain('did not cover the same sources')
+    expect(rendered).toContain('not covered: registry-user (snapshot "after")')
   })
 })

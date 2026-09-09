@@ -144,3 +144,53 @@ export interface AppsInspectResult {
   truncated: boolean
   coverage: AppInventoryCoverage
 }
+
+/**
+ * One named inventory snapshot kept by the composition: its content id, when it was collected,
+ * and what its sources reported. The entries themselves stay in the plugin's bounded store.
+ */
+export interface AppSnapshotRef {
+  name: string
+  /** Content id of the stored entry set, derived from the entry ids. */
+  id: string
+  generatedAt: string
+  /** Entries stored under this name. */
+  total: number
+  sources: AppSourceReport[]
+}
+
+/** One compared field that differs between two observations of the same entry. */
+export interface AppFieldChange {
+  field: 'name' | 'version' | 'publisher' | 'installLocation'
+  before?: string
+  after?: string
+}
+
+/** One entry present in both observations whose compared fields differ. */
+export interface AppChangedEntry {
+  id: string
+  name: string
+  sourceId: AppSourceId
+  changes: AppFieldChange[]
+}
+
+/** Result of one `apps_diff` call. */
+export interface AppsDiffResult {
+  from: AppSnapshotRef
+  to: AppSnapshotRef
+  added: InstalledApp[]
+  removed: InstalledApp[]
+  changed: AppChangedEntry[]
+  /** Entries per category before the `limit` was applied. */
+  total: { added: number; removed: number; changed: number }
+  /** Entries per category in the returned page. */
+  returned: { added: number; removed: number; changed: number }
+  /** Whether any category was cut by the `limit`. */
+  truncated: boolean
+  /**
+   * Whether the two observations read different sets of sources. When true, an entry may appear
+   * added or removed because a source was not read, not because the machine changed.
+   */
+  coverageChanged: boolean
+  coverage: AppInventoryCoverage
+}
