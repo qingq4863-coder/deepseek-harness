@@ -138,7 +138,7 @@ describe('pkg coverage and rendering', () => {
   })
 })
 
-describe('pkg_inspect tool', () => {
+describe('package-manager tools', () => {
   let agentCounter = 0
 
   function agent(ctx: Context): Agent {
@@ -220,11 +220,11 @@ describe('pkg_inspect tool', () => {
     return ctx
   }
 
-  function call(ctx: Context, args: Record<string, unknown> = {}) {
+  function call(ctx: Context, args: Record<string, unknown> = {}, name = 'pkg_inspect') {
     return ctx.tools.execute({
       signal: new AbortController().signal,
       callId: ToolCallId('pkg'),
-      name: 'pkg_inspect',
+      name,
       arguments: args,
       agent: agent(ctx),
     })
@@ -341,6 +341,140 @@ describe('pkg_inspect tool', () => {
     expect(JSON.stringify(schema)).not.toContain('capability')
     await fiber.dispose()
     expect(ctx.tools.schemas().some(candidate => candidate.name === 'pkg_inspect')).toBe(false)
+  })
+
+  const WINGET_SHOW = [
+    'Found 7-Zip [7zip.7zip]',
+    'Version: 26.03',
+    'Publisher: Igor Pavlov',
+    'Homepage: https://www.7-zip.org/',
+    'License: LGPL-2.1',
+    'Installer:',
+    '  Installer Type: wix',
+    '  Installer Url: https://www.7-zip.org/a/7z2603-x64.msi',
+    '  Installer SHA256: c0680064d698a62dd4a5a47f403db356a6531a5473e4c4b1d090ea2590513926',
+    '',
+  ].join('\n')
+
+  it('proposes a winget candidate with its artifact and hash, and spawns only the fixed argv', async () => {
+    const spawns: SubprocessSpawnSpec[] = []
+    const asks: ApprovalRequest[] = []
+    const ctx = await setup({
+      approval: fakeApproval(['allowed-once'], asks),
+      subprocess: fakeSubprocess({ winget: { stdout: WINGET_SHOW } }, spawns),
+    })
+    const result = await call(ctx, { manager: 'winget', package: '7zip.7zip' }, 'pkg_propose')
+    expect(result.isError).toBe(false)
+    const text = resultText(result)
+    expect(text).toContain('7zip.7zip (winget) — version 26.03 — Igor Pavlov')
+    expect(text).toContain('license: LGPL-2.1 (terms not reviewed by this tool)')
+    expect(text).toContain('sha256 c0680064d698a62dd4a5a47f403db356a6531a5473e4c4b1d090ea2590513926')
+    expect(text).toContain('Nothing was downloaded or installed; installing this package requires an explicit confirmation step.')
+    expect(spawns[0]?.argv).toEqual(['C:/stub/winget.exe', 'show', '--id', '7zip.7zip', '--exact', '--disable-interactivity', '--accept-source-agreements'])
+    expect(asks[0]?.toolName).toBe('pkg_propose')
+    expect(asks[0]?.reason).toContain('--id 7zip.7zip')
+  })
+
+  it('proposes an npm or pip candidate from its structured output', async () => {
+    const npmCtx = await setup({
+      subprocess: fakeSubprocess({ npm: { stdout: JSON.stringify({ name: 'left-pad', version: '1.3.0', license: { type: 'WTFPL' }, homepage: 'https://example.test', dist: { tarball: 'https://registry.test/left-pad.tgz', integrity: 'sha512-abc' } }) } }, []),
+    })
+    const npm = resultText(await call(npmCtx, { manager: 'npm', package: 'left-pad' }, 'pkg_propose'))
+    expect(npm).toContain('left-pad (npm) — version 1.3.0')
+    expect(npm).toContain('license: WTFPL')
+    expect(npm).toContain('integrity sha512-abc')
+
+    const pipCtx = await setup({
+      subprocess: fakeSubprocess({ pip: { stdout: ['pypdf (6.18.0)', 'Available versions: 6.18.0, 6.17.0, 6.16.2', '  INSTALLED: 6.16.2', '  LATEST:    6.18.0', ''].join('\n') } }, []),
+    })
+    const pip = resultText(await call(pipCtx, { manager: 'pip', package: 'pypdf' }, 'pkg_propose'))
+    expect(pip).toContain('pypdf (pip) — version 6.18.0')
+    expect(pip).toContain('installed locally: 6.16.2')
+    expect(pip).toContain('versions listed by the source: 6.18.0, 6.17.0, 6.16.2')
+  })
+
+  it('rejects a package name that could act as a flag or a path before spawning anything', async () => {
+    const spawns: SubprocessSpawnSpec[] = []
+    const asks: ApprovalRequest[] = []
+    const ctx = await setup({ approval: fakeApproval(['allowed-once'], asks), subprocess: fakeSubprocess({}, spawns) })
+    for (const pkg of ['--install-everything', '-x', 'a b', 'a/b', 'a\\b', 'x;y', '$(whoami)', '`id`', '', 'a'.repeat(129)]) {
+      const result = await call(ctx, { manager: 'winget', package: pkg }, 'pkg_propose')
+      expect(result.isError).toBe(true)
+      expect(resultText(result)).toContain('invalid package')
+    }
+    expect(spawns).toEqual([])
+    expect(asks).toEqual([])
+  })
+
+  it('fails closed on a denied probe and reports unreadable or timed-out probes', async () => {
+    const spawns: SubprocessSpawnSpec[] = []
+    const asked: ApprovalRequest[] = []
+    const denied = await setup({ approval: fakeApproval(['rejected'], asked), subprocess: fakeSubprocess({ winget: { stdout: WINGET_SHOW } }, spawns) })
+    const deniedText = resultText(await call(denied, { manager: 'winget', package: '7zip.7zip' }, 'pkg_propose'))
+    expect(deniedText).toContain('not read (denied — denied by approval decision (rejected))')
+    expect(deniedText).toContain('Nothing was downloaded or installed.')
+    expect(spawns).toEqual([])
+
+    const missing = await setup({ subprocess: fakeSubprocess({}, [], ['winget']) })
+    expect(resultText(await call(missing, { manager: 'winget', package: '7zip.7zip' }, 'pkg_propose')))
+      .toContain('not read (unavailable — executable not found)')
+
+    const failed = await setup({ subprocess: fakeSubprocess({ npm: { stdout: 'nope', exitCode: 1, stderr: 'boom' } }, []) })
+    expect(resultText(await call(failed, { manager: 'npm', package: 'left-pad' }, 'pkg_propose')))
+      .toContain('not read (failed — exited with code 1: boom)')
+
+    const truncated = await setup({ subprocess: fakeSubprocess({ pip: { stdout: 'pypdf (1)', lossy: true } }, []) })
+    expect(resultText(await call(truncated, { manager: 'pip', package: 'pypdf' }, 'pkg_propose')))
+      .toContain('not read (partial — output exceeded the result bound)')
+
+    const timedOut = await setup({ pkg: { pkgTimeoutMs: 1000 }, subprocess: fakeSubprocess({ pip: { never: true } }, []) })
+    expect(resultText(await call(timedOut, { manager: 'pip', package: 'pypdf' }, 'pkg_propose')))
+      .toContain('not read (failed — timed out after 1000ms)')
+  })
+
+  it('requires an owning agent session for the proposal', async () => {
+    const ctx = await setup()
+    const result = await ctx.tools.execute({
+      signal: new AbortController().signal,
+      callId: ToolCallId('propose-no-agent'),
+      name: 'pkg_propose',
+      arguments: { manager: 'pip', package: 'pypdf' },
+    })
+    expect(result.isError).toBe(true)
+    expect(resultText(result)).toContain('owning agent session')
+  })
+})
+
+describe('proposal sanitization and rendering', () => {
+  const proposal = (over: Partial<ToolEnvInspect.PackageProposal> = {}): ToolEnvInspect.PackageProposal => ({
+    manager: 'winget',
+    package: '7zip.7zip',
+    version: '26.03',
+    ...over,
+  })
+
+  it('strips invisible characters, drops empty fields, and caps the version list', () => {
+    const sanitized = ToolEnvInspect.sanitizeProposal(proposal({
+      publisher: 'Igor\u202E Pavlov\u200B',
+      license: '   ',
+      artifact: { sha256: 'c068\u0000' },
+      availableVersions: Array.from({ length: 20 }, (_, index) => `1.0.${index}`),
+    }))
+    expect(sanitized.publisher).toBe('Igor Pavlov')
+    expect(sanitized.license).toBeUndefined()
+    expect(sanitized.artifact).toEqual({ sha256: 'c068' })
+    expect(sanitized.availableVersions).toHaveLength(10)
+  })
+
+  it('flags the hash as source-reported and states that nothing was installed', () => {
+    const rendered = ToolEnvInspect.renderProposal({
+      snapshot: { generatedAt: '2026-09-09T00:00:00.000Z', durationMs: 3, platform: 'win32' },
+      manager: { id: 'winget', status: 'ok' },
+      proposal: proposal({ artifact: { url: 'https://example.test/7z.msi', sha256: 'abc' }, availableVersions: ['26.03'] }),
+      coverage: { ...ToolEnvInspect.PROPOSE_COVERAGE, notCovered: [] },
+    })
+    expect(rendered).toContain('hash reported by the source, not verified here')
+    expect(rendered).toContain('Nothing was downloaded or installed')
   })
 })
 

@@ -255,3 +255,60 @@ export interface PkgInspectResult {
   truncated: boolean
   coverage: PkgInventoryCoverage
 }
+
+/** One `pkg_propose` probe's outcome. */
+export interface PkgProbeReport {
+  id: PkgManagerId
+  status: PkgManagerStatus
+  /** The executable that was resolved and approved for the run, when one was resolved. */
+  executable?: string
+  /** Why the probe was not fully read, when it was not. */
+  note?: string
+}
+
+/**
+ * What a package manager says about one candidate package. Every field is third-party metadata
+ * read from the manager's configured sources; `artifact` names where a package would come from
+ * and the hash the source publishes for it, which DSH repeats rather than verifies.
+ */
+export interface PackageProposal {
+  manager: PkgManagerId
+  /** The package name the caller asked about, exactly as validated. */
+  package: string
+  /** The source's canonical identity for the package, when the manager states one. */
+  resolvedId?: string
+  /** The version the manager would install now, when the manager states one. */
+  version?: string
+  /** The newest version the source reports. */
+  latestVersion?: string
+  /**
+   * The version recorded locally, when the manager reports one. Absence is not evidence that the
+   * package is not installed; use `pkg_inspect` for that.
+   */
+  installedVersion?: string
+  publisher?: string
+  license?: string
+  homepage?: string
+  /** Where the artifact would come from and the hash the source publishes for it. */
+  artifact?: {
+    kind?: string
+    url?: string
+    sha256?: string
+    integrity?: string
+  }
+  /** Newest versions the source lists, descending, capped at the fixed list bound. */
+  availableVersions?: string[]
+}
+
+/** Result of one `pkg_propose` call. */
+export interface PkgProposeResult {
+  snapshot: {
+    generatedAt: string
+    durationMs: number
+    platform: string
+  }
+  manager: PkgProbeReport
+  /** The proposal, absent when the probe could not read the source. */
+  proposal?: PackageProposal
+  coverage: PkgInventoryCoverage
+}

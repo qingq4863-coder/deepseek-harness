@@ -259,6 +259,26 @@ describe('tool-env-inspect real Loader composition through cordis.yml', () => {
     expect(text).toMatch(/managers: .*(pip|npm) (ok|partial) \(/u)
   }, 120_000)
 
+  it.skipIf(!IS_WIN32)('pkg_propose resolves a real candidate without downloading anything', async () => {
+    const ctx = await boot([...BASE_ENTRIES, ...ENV_CONFIG])
+    ctx.on('approval/request', () => Promise.resolve('allowed-once'))
+    const caller = agent(ctx)
+    caller.session.append('turn/start', { turn: 1 })
+    const result = await ctx.tools.execute({
+      signal: new AbortController().signal,
+      callId: ToolCallId('pkg-propose-real'),
+      name: 'pkg_propose',
+      arguments: { manager: 'winget', package: '7zip.7zip' },
+      agent: caller,
+    })
+    expect(result.isError).toBe(false)
+    const text = resultText(result)
+    // The probe reads the manager's sources, which may be unreachable offline; either way the
+    // tool must answer honestly and must never claim to have installed anything.
+    expect(text).toMatch(/\(winget\)|not read \(/u)
+    expect(text).not.toContain('installed successfully')
+  }, 120_000)
+
   it.each([
     { label: 'is omitted', overrides: { maxCommands: undefined }, failure: '$.maxCommands missing required value' },
     { label: 'is not a number', overrides: { maxCommands: '"many"' }, failure: '$.maxCommands expected number' },

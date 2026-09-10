@@ -20,6 +20,7 @@ import z from '@deepseek-ai/schemastery'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { registerAppsTools } from './apps-tool.ts'
 import { registerPkgInspect } from './pkg-tool.ts'
+import { registerPkgPropose } from './pkg-propose.ts'
 import type { EnvCommandProbe, EnvVersionProbe } from './types.ts'
 
 export type * from './types.ts'
@@ -31,6 +32,8 @@ export { buildPackages, packageId, PKG_INVENTORY_COVERAGE, PKG_MANAGER_IDS, PKG_
 export type { ParsedPackage, ParseOutcome, PkgProbe } from './pkg.ts'
 export { registerPkgInspect, renderPkgInspect } from './pkg-tool.ts'
 export type { PkgInspectArgs, PkgInspectConfig } from './pkg-tool.ts'
+export { PROPOSE_COVERAGE, PROPOSE_PROBES, registerPkgPropose, renderProposal, sanitizeProposal } from './pkg-propose.ts'
+export type { ProposeProbe } from './pkg-propose.ts'
 
 export const name = 'tool-env-inspect'
 export const inject = ['tools', 'approval', 'subprocess']
@@ -459,4 +462,5 @@ export function apply(ctx: Context, config: Config): void {
 
   registerAppsTools(ctx, config)
   registerPkgInspect(ctx, config)
+  registerPkgPropose(ctx, config)
 }
