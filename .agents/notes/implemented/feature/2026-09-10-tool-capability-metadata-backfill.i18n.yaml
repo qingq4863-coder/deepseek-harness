@@ -1,0 +1,6 @@
+# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
+# side as of the last confirmed-consistent state. Both languages carry equal authority;
+# after editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-09-10-tool-capability-metadata-backfill.md
+2026-09-10-tool-capability-metadata-backfill.md: 189a7b18f4c2c9562c1b3ea9d4ee1ceca95aa69a
+2026-09-10-tool-capability-metadata-backfill.zh.md: ea8af3e2d163daca409b149db80f235d01f38aed

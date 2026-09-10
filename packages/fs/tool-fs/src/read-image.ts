@@ -238,6 +238,13 @@ export function applyReadImageTool(ctx: Context): void {
     // Content-addressed attachment writes are idempotent, so concurrent reads
     // of the same file cannot conflict.
     isConcurrencySafe: () => true,
+    capability: {
+      dataClass: 'workspace',
+      risk: 'low',
+      readScope: ['image files the filesystem policy admits for this session'],
+      reversible: true,
+      approval: 'automatic',
+    },
     async execute(args, exec) {
       if (args.file_path.trim().length === 0) throw new Error('file_path must be a non-empty string')
 

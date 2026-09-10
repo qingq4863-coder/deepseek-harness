@@ -338,6 +338,13 @@ export function applyGlobTool(ctx: Context, caps: GlobToolCaps): void {
         return globSearchMeta({ items: page.items, truncated: page.truncated, seen: value.paths.length }, caps.maxMetaBytes)
       },
     },
+    capability: {
+      dataClass: 'workspace',
+      risk: 'low',
+      readScope: ['directories the filesystem policy admits for this session'],
+      reversible: true,
+      approval: 'automatic',
+    },
     async execute(args, exec) {
       const input = parseGlobArgs(args)
       const run = await runRipgrep(ctx, exec, 'glob', buildGlobCommand(input), caps.rawOutputMaxBytes, caps.graceMs, caps.stderrMaxBytes)

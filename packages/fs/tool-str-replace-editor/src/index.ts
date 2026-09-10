@@ -468,6 +468,16 @@ function registerStrReplaceEditor(ctx: Context, config: ResolvedConfig): void {
       schema: { type: 'string' },
       render: (_args, value) => [{ type: 'text', text: value }],
     },
+    // One tool with both a read command (`view`) and write commands, so it
+    // carries both scopes and the write-side classification.
+    capability: {
+      dataClass: 'workspace',
+      risk: 'medium',
+      readScope: ['files the filesystem policy admits for this session'],
+      writeScope: ['files the filesystem policy admits for this session'],
+      reversible: false,
+      approval: 'scoped',
+    },
     async execute(args, exec) {
       switch (args.command) {
         case 'view':

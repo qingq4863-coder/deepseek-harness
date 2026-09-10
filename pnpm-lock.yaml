@@ -5308,6 +5308,9 @@ importers:
       '@deepseek-ai/dsh-llm-deepseek':
         specifier: workspace:^
         version: link:../../llm/llm-deepseek
+      '@deepseek-ai/dsh-permission-presets':
+        specifier: workspace:^
+        version: link:../../interaction/permission-presets
       '@deepseek-ai/dsh-sandbox':
         specifier: workspace:^
         version: link:../../sandbox/sandbox

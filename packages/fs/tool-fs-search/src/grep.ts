@@ -316,6 +316,13 @@ export function applyGrepTool(ctx: Context, caps: GrepToolCaps): void {
       presentationMeta: (_args, value) =>
         grepSearchMeta(retainGrepMatches(value.matches, caps.maxMatches, caps.maxLineBytes), caps.maxMetaBytes),
     },
+    capability: {
+      dataClass: 'workspace',
+      risk: 'low',
+      readScope: ['files the filesystem policy admits for this session'],
+      reversible: true,
+      approval: 'automatic',
+    },
     async execute(args, exec) {
       const input = parseGrepArgs(args)
       const run = await runRipgrep(ctx, exec, 'grep', buildGrepCommand(input), caps.rawOutputMaxBytes, caps.graceMs, caps.stderrMaxBytes)

@@ -132,6 +132,13 @@ export function applyReadTool(ctx: Context, caps: ReadToolCaps): void {
     },
     // Observation races fail closed because guarded mutations re-check the version in-lock.
     isConcurrencySafe: () => true,
+    capability: {
+      dataClass: 'workspace',
+      risk: 'low',
+      readScope: ['files the filesystem policy admits for this session'],
+      reversible: true,
+      approval: 'automatic',
+    },
     async execute(args, exec) {
       const input = parseReadArgs(args, caps.limit)
       // One stat: absence observation OR type check + size routing + present version.
