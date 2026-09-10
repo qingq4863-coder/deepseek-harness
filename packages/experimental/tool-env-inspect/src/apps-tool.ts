@@ -346,10 +346,32 @@ export function registerAppsTools(ctx: Context, config: AppsInspectConfig): void
     presentCall: args => ({ card: 'generic', title: 'Inspect installed applications', kind: 'other', rawInput: args }),
   }))
 
-  const snapshots = new Map<string, { ref: AppSnapshotRef; apps: InstalledApp[] }>()
+  /** One stored capture: its reference and the complete unfiltered entry set. */
+  interface StoredSnapshot {
+    ref: AppSnapshotRef
+    apps: InstalledApp[]
+  }
 
-  /** Store one snapshot, replacing a same-named entry and evicting the oldest past the bound. */
-  function storeSnapshot(ref: AppSnapshotRef, apps: InstalledApp[]): void {
+  /**
+   * Snapshots are session-owned. Keying the store by the owning session object keeps one
+   * session's machine inventory unreachable from another session in the same composition and
+   * lets the whole store be collected with the session, which is the retention rule this
+   * inventory class follows.
+   */
+  const snapshotsBySession = new WeakMap<object, Map<string, StoredSnapshot>>()
+
+  /** The calling session's store, created on first use. */
+  function storeFor(session: object): Map<string, StoredSnapshot> {
+    const existing = snapshotsBySession.get(session)
+    if (existing !== undefined) return existing
+    const created = new Map<string, StoredSnapshot>()
+    snapshotsBySession.set(session, created)
+    return created
+  }
+
+  /** Store one snapshot in its session, replacing a same-named entry and evicting the oldest. */
+  function storeSnapshot(session: object, ref: AppSnapshotRef, apps: InstalledApp[]): void {
+    const snapshots = storeFor(session)
     snapshots.delete(ref.name)
     snapshots.set(ref.name, { ref, apps })
     while (snapshots.size > config.appsMaxSnapshots) {
@@ -454,7 +476,7 @@ export function registerAppsTools(ctx: Context, config: AppsInspectConfig): void
         total: read.apps.length,
         sources: read.sources,
       }
-      storeSnapshot(ref, read.apps)
+      storeSnapshot(exec.agent.session, ref, read.apps)
       return { snapshot: ref }
     },
     presentCall: args => ({ card: 'generic', title: `Capture snapshot "${args.name}"`, kind: 'other', rawInput: args }),
@@ -552,24 +574,25 @@ export function registerAppsTools(ctx: Context, config: AppsInspectConfig): void
       approval: 'scoped',
     },
     async execute(args, exec) {
+      if (exec.agent === undefined) {
+        throw new Error('apps_diff requires an owning agent session, because snapshots are stored per session')
+      }
       const limit = args.limit ?? config.appsDefaultLimit
       if (!Number.isInteger(limit) || limit < 1 || limit > config.appsMaxLimit) {
         throw new Error(`invalid limit: expected an integer between 1 and ${config.appsMaxLimit}`)
       }
+      const snapshots = storeFor(exec.agent.session)
       const from = snapshots.get(args.from)
       if (from === undefined) {
         const known = [...snapshots.keys()]
         throw new Error(`apps_diff: unknown snapshot "${args.from}"${known.length > 0 ? ` (known: ${known.join(', ')})` : '; no snapshot has been captured yet'}`)
       }
-      let to: { ref: AppSnapshotRef; apps: InstalledApp[] }
+      let to: StoredSnapshot
       if (args.to !== undefined) {
         const stored = snapshots.get(args.to)
         if (stored === undefined) throw new Error(`apps_diff: unknown snapshot "${args.to}"`)
         to = stored
       } else {
-        if (exec.agent === undefined) {
-          throw new Error('apps_diff requires an owning agent session so the approval decision is recorded')
-        }
         const decision = await ctx.approval.request({
           agent: exec.agent,
           toolName: 'apps_diff',

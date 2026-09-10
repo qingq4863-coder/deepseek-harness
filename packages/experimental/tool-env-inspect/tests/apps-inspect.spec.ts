@@ -509,13 +509,24 @@ describe('apps_inspect tool', () => {
     return ctx
   }
 
+  /** One agent per context: snapshots are session-owned, so calls must share a session. */
+  const agentByContext = new WeakMap<Context, Agent>()
+
+  function agentFor(ctx: Context): Agent {
+    const existing = agentByContext.get(ctx)
+    if (existing !== undefined) return existing
+    const created = agent(ctx)
+    agentByContext.set(ctx, created)
+    return created
+  }
+
   function call(ctx: Context, args: Record<string, unknown> = {}, name = 'apps_inspect') {
     return ctx.tools.execute({
       signal: new AbortController().signal,
       callId: ToolCallId('apps'),
       name,
       arguments: args,
-      agent: agent(ctx),
+      agent: agentFor(ctx),
     })
   }
 
@@ -743,8 +754,36 @@ describe('apps_inspect tool', () => {
     expect(resultText(evicted)).toContain('unknown snapshot "one" (known: two, three)')
   })
 
-  it('fails loud for an unknown diff target and an over-bound limit', async () => {
-    const ctx = await setup({ shell: scriptedShell([{ stdout: firstInventory }]).shell })
+  it('keeps one session\'s snapshots unreachable from another session', async () => {
+    const { shell } = scriptedShell([{ stdout: firstInventory }])
+    const ctx = await setup({ shell })
+    if (process.platform !== 'win32') return
+    await call(ctx, { name: 'before' }, 'apps_snapshot')
+    const other = await ctx.tools.execute({
+      signal: new AbortController().signal,
+      callId: ToolCallId('apps-other-session'),
+      name: 'apps_diff',
+      arguments: { from: 'before' },
+      agent: agent(ctx),
+    })
+    expect(other.isError).toBe(true)
+    expect(resultText(other)).toContain('unknown snapshot "before"')
+    expect(resultText(other)).toContain('no snapshot has been captured yet')
+  })
+
+  it('requires an owning session to diff stored snapshots', async () => {
+    const ctx = await setup()
+    const result = await ctx.tools.execute({
+      signal: new AbortController().signal,
+      callId: ToolCallId('apps-diff-no-agent'),
+      name: 'apps_diff',
+      arguments: { from: 'before', to: 'after' },
+    })
+    expect(result.isError).toBe(true)
+    expect(resultText(result)).toContain('snapshots are stored per session')
+  })
+
+  it('fails loud for an unknown diff target and an over-bound limit', async () => {    const ctx = await setup({ shell: scriptedShell([{ stdout: firstInventory }]).shell })
     const unknownFrom = await call(ctx, { from: 'nope' }, 'apps_diff')
     expect(unknownFrom.isError).toBe(true)
     expect(resultText(unknownFrom)).toContain('no snapshot has been captured yet')
