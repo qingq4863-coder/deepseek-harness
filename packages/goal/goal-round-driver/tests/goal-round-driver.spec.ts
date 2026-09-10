@@ -6,11 +6,12 @@ import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
 import GoalService, { GoalId } from '@deepseek-ai/dsh-goal'
 import type { GoalView } from '@deepseek-ai/dsh-goal'
-import { createUserMessage, LlmAdapter, LlmError  } from '@deepseek-ai/dsh-llm'
+import { createUserMessage, LlmAdapter, LlmError, ToolCallId } from '@deepseek-ai/dsh-llm'
 import type { GenerateOptions, StreamChunk } from '@deepseek-ai/dsh-llm'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import type { UserMessage } from '@deepseek-ai/dsh-session'
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
+import { defineContentToolFixture } from '@deepseek-ai/dsh-tools'
 import * as goalSession from '../src/index.ts'
 
 type ScriptEntry = StreamChunk[] | Error | 'hang' | ((options: GenerateOptions) => StreamChunk[])
@@ -86,13 +87,13 @@ afterEach(async () => {
 })
 
 /** Mount a real loop with only its model scripted. */
-async function harness(script: ScriptEntry[]): Promise<Harness> {
+async function harness(script: ScriptEntry[], config: goalSession.Config = {}): Promise<Harness> {
   const ctx = new Context()
   contexts.push(ctx)
   await mountAgentLoopTestDependencies(ctx)
   await ctx.plugin(SessionProjectionRegistry)
   await ctx.plugin(GoalService)
-  const driver = await ctx.plugin(goalSession)
+  const driver = await ctx.plugin(goalSession, config)
   await ctx.plugin(AgentLoop, { agents: [] })
   const adapter = new ScriptedAdapter(script)
   ctx.llm.registerAdapter(['mock'], adapter)
@@ -1117,5 +1118,151 @@ describe('same-session goal driving', () => {
     await handle.dispose()
 
     expect(test.ctx.agents.get(handle.agent.id)).toBeUndefined()
+  })
+})
+
+describe('consecutive failure stop policy', () => {
+  /** One assistant response containing the supplied tool calls. */
+  function toolCallResponse(calls: { id: string; name: string }[]): StreamChunk[] {
+    const chunks: StreamChunk[] = []
+    calls.forEach((call, index) => {
+      chunks.push(
+        { type: 'block-start', index, blockType: 'tool-call' },
+        {
+          type: 'block-end',
+          index,
+          block: { type: 'tool-call', id: ToolCallId(call.id), name: call.name, arguments: '{}' },
+        },
+      )
+    })
+    chunks.push({ type: 'finish', reason: { kind: 'tool-calls' } })
+    return chunks
+  }
+
+  /** One call to a tool that always fails and one to a tool that always succeeds. */
+  function failingCall(id: string): StreamChunk[] {
+    return toolCallResponse([{ id, name: 'always-fails' }])
+  }
+
+  /** Register the two deterministic outcome tools this policy is measured with. */
+  function registerOutcomeTools(ctx: Context): void {
+    ctx.tools.register(defineContentToolFixture({
+      name: 'always-fails',
+      description: 'always fails',
+      parameters: {},
+      execute() {
+        throw new Error('deterministic tool failure')
+      },
+    }))
+    ctx.tools.register(defineContentToolFixture({
+      name: 'always-succeeds',
+      description: 'always succeeds',
+      parameters: {},
+      execute() {
+        return Promise.resolve([{ type: 'text' as const, text: 'ok' }])
+      },
+    }))
+  }
+
+  it('stops automatic continuation after the configured consecutive tool failures', async () => {
+    const test = await harness([
+      failingCall('f1'), textResponse('round one done'),
+      failingCall('f2'), textResponse('round two done'),
+      failingCall('f3'), textResponse('round three done'),
+    ])
+    registerOutcomeTools(test.ctx)
+    test.ctx.goals.create(test.agent, { objective: 'stop flailing', maxGoalRounds: 9 })
+
+    const final = await waitForGoal(test.ctx, test.agent, goal => goal?.phase === 'blocked')
+
+    expect(final?.blockedReason?.code).toBe('consecutive-failures')
+    expect(final?.blockedReason?.message).toContain('3 consecutive failed tool calls')
+    expect(final).toMatchObject({ roundsStarted: 3, activation: 'disarmed' })
+    expect(test.adapter.requests).toHaveLength(6)
+  })
+
+  it('does not stop a goal whose failure streak a successful tool result interrupted', async () => {
+    const test = await harness([
+      failingCall('f1'), textResponse('round one done'),
+      toolCallResponse([{ id: 's1', name: 'always-succeeds' }]), textResponse('round two done'),
+      failingCall('f2'), textResponse('round three done'),
+      failingCall('f3'), textResponse('round four done'),
+      textResponse('round five done'),
+    ])
+    registerOutcomeTools(test.ctx)
+    test.ctx.goals.create(test.agent, { objective: 'recover between rounds', maxGoalRounds: 5 })
+
+    const final = await waitForGoal(test.ctx, test.agent, goal => goal?.phase === 'blocked')
+
+    // The cap ends this goal; the run of failures after the successful result
+    // never reached the threshold, so the stop policy abstained.
+    expect(final?.blockedReason?.code).toBe('round-limit')
+    expect(final).toMatchObject({ roundsStarted: 5, activation: 'disarmed' })
+    expect(test.adapter.requests).toHaveLength(9)
+  })
+
+  it('honors a configured failure threshold', async () => {
+    const test = await harness(
+      [failingCall('f1'), textResponse('round one done'), failingCall('f2'), textResponse('round two done')],
+      { maxConsecutiveFailures: 2 },
+    )
+    registerOutcomeTools(test.ctx)
+    test.ctx.goals.create(test.agent, { objective: 'stop early', maxGoalRounds: 9 })
+
+    const final = await waitForGoal(test.ctx, test.agent, goal => goal?.phase === 'blocked')
+
+    expect(final?.blockedReason?.code).toBe('consecutive-failures')
+    expect(final?.blockedReason?.message).toContain('2 consecutive failed tool calls')
+    expect(test.adapter.requests).toHaveLength(4)
+  })
+
+  it('clears the failure streak when a human-authorized resume rearms the goal', async () => {
+    const test = await harness([
+      failingCall('f1'), textResponse('round one done'),
+      failingCall('f2'), textResponse('round two done'),
+      failingCall('f3'), textResponse('round three done'),
+      textResponse('round four done'),
+    ])
+    registerOutcomeTools(test.ctx)
+    test.ctx.goals.create(test.agent, { objective: 'resume after failures', maxGoalRounds: 4 })
+
+    const stopped = await waitForGoal(test.ctx, test.agent, goal => goal?.phase === 'blocked')
+    expect(stopped?.blockedReason?.code).toBe('consecutive-failures')
+
+    test.ctx.goals.resume(test.agent, { id: stopped!.id, revision: stopped!.revision })
+
+    const final = await waitForGoal(test.ctx, test.agent, goal => goal?.roundsStarted === 4 && goal.phase === 'blocked')
+
+    // A fresh streak would have blocked with the failure reason before round 4 ran.
+    expect(final?.blockedReason?.code).toBe('round-limit')
+    expect(test.adapter.requests).toHaveLength(7)
+  })
+
+  it('rejects an invalid direct configuration before installing anything', () => {
+    expect(() => {
+      goalSession.apply(new Context(), { maxConsecutiveFailures: 0 })
+    }).toThrow('maxConsecutiveFailures must be a positive safe integer')
+  })
+
+  it('drives a goal under a direct apply that resolves the default threshold', async () => {
+    const ctx = new Context()
+    contexts.push(ctx)
+    await mountAgentLoopTestDependencies(ctx)
+    await ctx.plugin(SessionProjectionRegistry)
+    await ctx.plugin(GoalService)
+    goalSession.apply(ctx, {})
+    await ctx.plugin(AgentLoop, { agents: [] })
+    const adapter = new ScriptedAdapter([textResponse('round one done')])
+    ctx.llm.registerAdapter(['mock'], adapter)
+    const agent = await ctx.agentLoop.create(SessionId(`goal-direct-${Math.random()}`), {
+      provider: 'mock',
+      model: 'mock',
+    })
+    ctx.goals.create(agent, { objective: 'drive without a loader', maxGoalRounds: 1 })
+
+    const final = await waitForGoal(ctx, agent, goal => goal?.phase === 'blocked')
+
+    expect(final?.blockedReason?.code).toBe('round-limit')
+    expect(adapter.requests).toHaveLength(1)
   })
 })

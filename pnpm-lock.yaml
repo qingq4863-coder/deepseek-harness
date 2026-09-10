@@ -5499,6 +5499,10 @@ importers:
         version: link:../../typert/protocol
 
   packages/goal/goal-round-driver:
+    dependencies:
+      '@deepseek-ai/schemastery':
+        specifier: link:../../../vendor/schemastery
+        version: link:../../../vendor/schemastery
     devDependencies:
       '@deepseek-ai/cordis':
         specifier: workspace:^

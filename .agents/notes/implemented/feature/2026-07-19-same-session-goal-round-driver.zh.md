@@ -16,7 +16,7 @@ Status: implemented
 
 层次关系为目标（Goal）→ Goal Round → 轮次（Turn）→ 步骤（Step）。Goal Round 是外层继续执行策略的一次迭代；它会成为一个归属于目标的会话轮次，而该轮次可以包含任意数量的普通模型或工具步骤。同一会话中的人类轮次不是 Goal Round，也绝不会增加 `roundsStarted`。
 
-该插件没有配置项。`maxGoalRounds` 由 `dsh-goal` 解析并持久化；「相同阻塞条件」的门槛由 `dsh-tool-goal` 解析并写入提示词。若驱动器重复声明这些可调值，一个策略就会出现多个所有者。
+该插件唯一的配置项是 `maxConsecutiveFailures`，即它自己拥有的连续失败停止上限，因为决定是否继续目标的是它。`maxGoalRounds` 由 `dsh-goal` 解析并持久化；「相同阻塞条件」的门槛由 `dsh-tool-goal` 解析并写入提示词。若驱动器重复声明这两个可调值中的任何一个，一个策略就会出现多个所有者。
 
 ### 预留与接纳
 
@@ -48,6 +48,8 @@ Status: implemented
 | 插件新增的未知结果 | 阻塞并等待检查 |
 
 异常结果都不会请求自动重试。之后的人类提示词可以用任何语言要求继续；模型读取已停止目标并调用目标工具的 resume 动作，记录新修订并重新激活继续执行。
+
+失败连击是续行门禁，而不是轮次结果：在预留 Round 之前，驱动器把会话中观察到的连续失败工具结果与 `maxConsecutiveFailures` 比较，并以代码 `consecutive-failures` 阻塞。任何成功的工具结果、以及任何用户授权的 `resume`，都会清零连击。[失败连击停止 Agent Note](2026-09-10-goal-consecutive-failure-stop.zh.md) 拥有该决策。
 
 ### 持久性与取消约定
 

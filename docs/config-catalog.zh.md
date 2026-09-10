@@ -694,6 +694,90 @@ export interface Config {
 
 来源：[`packages/experimental/tool-agent-team/src/index.ts:17`](../packages/experimental/tool-agent-team/src/index.ts)
 
+<a id="deepseek-aidsh-experimental-tool-env-inspect"></a>
+
+## `@deepseek-ai/dsh-experimental-tool-env-inspect`
+
+需要：`tools` · `approval` · `subprocess`
+
+```ts config-catalog
+/** Model-facing env-inspect tool configuration. */
+export interface Config {
+  /**
+   * Required deployment choice for how many distinct command names one `env_inspect` call may
+   * probe. Each command yields one structured result entry, so this bound is the result-size
+   * bound; the accepted range is 1-64, and a value outside it fails at load.
+   */
+  maxCommands: number
+  /**
+   * Required deployment choice for how many distinct command names one `env_version` call may
+   * probe. Each command runs its own approved child process, so this bound is also the bound
+   * on approval decisions and child processes per call; the accepted range is 1-32, and a
+   * value outside it fails at load.
+   */
+  versionMaxCommands: number
+  /**
+   * Required deployment choice for the deadline of one `env_version` child process, in
+   * milliseconds. Expiry aborts the process tree and the probe reports a timeout; the
+   * accepted range is 1000-120000, and a value outside it fails at load.
+   */
+  versionTimeoutMs: number
+  /**
+   * Required deployment choice for how many installed-application entries one `apps_inspect`
+   * call returns when the model omits `limit`. The accepted range is 1-200 and it must not
+   * exceed `appsMaxLimit`, and a value outside that fails at load.
+   */
+  appsDefaultLimit: number
+  /**
+   * Required deployment choice for the largest `limit` one `apps_inspect` call may use. The
+   * accepted range is 1-200, and a value outside it fails at load.
+   */
+  appsMaxLimit: number
+  /**
+   * Required deployment choice for the installed-application snapshot cache lifetime, in
+   * milliseconds. `0` disables caching so every call reads the machine again; the accepted
+   * range is 0-3600000, and a value outside it fails at load.
+   */
+  appsCacheTtlMs: number
+  /**
+   * Required deployment choice for the deadline of one installed-application collection run,
+   * in milliseconds. Expiry aborts the shell process tree and the result reports the sources as
+   * not read; the accepted range is 1000-120000, and a value outside it fails at load.
+   */
+  appsTimeoutMs: number
+  /**
+   * Required deployment choice for how many named `apps_snapshot` captures one composition keeps
+   * before evicting the oldest. The accepted range is 1-50, and a value outside it fails at load.
+   */
+  appsMaxSnapshots: number
+  /**
+   * Required deployment choice for how many packages one `pkg_inspect` call returns when the
+   * model omits `limit`. The accepted range is 1-`pkgMaxPackages`, and a value outside it fails
+   * at load.
+   */
+  pkgDefaultLimit: number
+  /**
+   * Required deployment choice for the largest `limit` one `pkg_inspect` call may use. The
+   * accepted range is 1-500, and a value outside it fails at load.
+   */
+  pkgMaxPackages: number
+  /**
+   * Required deployment choice for the deadline of one package-manager probe, in milliseconds.
+   * Expiry aborts the probe's process tree; the accepted range is 1000-120000, and a value
+   * outside it fails at load.
+   */
+  pkgTimeoutMs: number
+  /**
+   * Required deployment choice for the deadline of one `pkg_install`/`pkg_uninstall` run, in
+   * milliseconds. Installs legitimately run long, so the range is wider than a probe's; expiry
+   * aborts the process tree, and the accepted range is 1000-600000.
+   */
+  pkgInstallTimeoutMs: number
+}
+```
+
+来源：[`packages/experimental/tool-env-inspect/src/index.ts:61`](../packages/experimental/tool-env-inspect/src/index.ts)
+
 <a id="deepseek-aidsh-file-reference-local"></a>
 
 ## `@deepseek-ai/dsh-file-reference-local`
@@ -768,6 +852,22 @@ export interface Config {
 ```
 
 来源：[`packages/goal/goal/src/index.ts:172`](../packages/goal/goal/src/index.ts)
+
+<a id="deepseek-aidsh-goal-round-driver"></a>
+
+## `@deepseek-ai/dsh-goal-round-driver`
+
+需要：`agents` · `goals` · `sessions`
+
+```ts config-catalog
+/** Automatic-continuation stop policy for one mounted driver. */
+export interface Config {
+  /** Consecutive failed tool results that stop automatic continuation of the active goal. */
+  maxConsecutiveFailures?: number
+}
+```
+
+来源：[`packages/goal/goal-round-driver/src/index.ts:23`](../packages/goal/goal-round-driver/src/index.ts)
 
 <a id="deepseek-aidsh-headless"></a>
 
@@ -3407,7 +3507,6 @@ export interface Config {
 - `@deepseek-ai/dsh-experimental-client-ui-agent-team`（[`packages/experimental/client-ui-agent-team/src/index.ts`](../packages/experimental/client-ui-agent-team/src/index.ts)）
 - `@deepseek-ai/dsh-fs-e2b` — 需要 `e2b`（[`packages/e2b/fs-e2b/src/index.ts`](../packages/e2b/fs-e2b/src/index.ts)）
 - `@deepseek-ai/dsh-fs-observation-policy`（[`packages/fs/fs-observation-policy/src/index.ts`](../packages/fs/fs-observation-policy/src/index.ts)）
-- `@deepseek-ai/dsh-goal-round-driver` — 需要 `agents` · `goals` · `sessions`（[`packages/goal/goal-round-driver/src/index.ts`](../packages/goal/goal-round-driver/src/index.ts)）
 - `@deepseek-ai/dsh-host-directory-picker-auto` — 需要 `webServer` · `loader`（[`packages/host/directory-picker-auto/src/index.ts`](../packages/host/directory-picker-auto/src/index.ts)）
 - `@deepseek-ai/dsh-host-directory-picker-native`（[`packages/host/directory-picker-native/src/index.ts`](../packages/host/directory-picker-native/src/index.ts)）
 - `@deepseek-ai/dsh-host-plugin-inventory` — 需要 `loader`（[`packages/host/plugin-inventory/src/index.ts`](../packages/host/plugin-inventory/src/index.ts)）

@@ -16,7 +16,7 @@ That bridge has concurrency and durability obligations. Human input, cancellatio
 
 The hierarchy is Goal → Goal Round → Turn → Step. A goal round is the outer continuation policy iteration; it becomes one goal-sourced session turn, and that turn can contain any number of ordinary model/tool steps. Human turns in the same session are not goal rounds and never increment `roundsStarted`.
 
-The plugin has no configuration. `maxGoalRounds` is resolved and persisted by `dsh-goal`, and the same-condition blocking threshold is resolved and prompted by `dsh-tool-goal`. Repeating those tunables in the driver would create multiple owners for one policy.
+The plugin's only configuration is `maxConsecutiveFailures`, the consecutive-failure stop bound it owns because it decides whether to continue a goal. `maxGoalRounds` is resolved and persisted by `dsh-goal`, and the same-condition blocking threshold is resolved and prompted by `dsh-tool-goal`; repeating either of those tunables in the driver would create multiple owners for one policy.
 
 ### Reservation and admission
 
@@ -48,6 +48,8 @@ The driver classifies one closed goal-owned turn as follows:
 | plugin-added unknown result | block for inspection |
 
 No abnormal outcome requests an automatic retry. A later human prompt can ask to continue in any language; the model reads the stopped goal and uses the goal tool's resume action, which records a new revision and arms continuation.
+
+A failure streak is a continuation gate rather than a turn outcome: before reserving a round the driver compares the consecutive failed tool results it has observed in the session against `maxConsecutiveFailures` and blocks with code `consecutive-failures`. Any successful tool result and any human-authorized `resume` clear the streak. [The failure-streak stop note](2026-09-10-goal-consecutive-failure-stop.md) owns that decision.
 
 ### Durability and cancellation contract
 

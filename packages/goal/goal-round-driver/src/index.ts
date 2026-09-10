@@ -6,6 +6,7 @@
 import { isDeepStrictEqual } from 'node:util'
 import { FiberState } from '@deepseek-ai/cordis'
 import type { Context } from '@deepseek-ai/cordis'
+import z from '@deepseek-ai/schemastery'
 import type { Agent, PreStepDecision } from '@deepseek-ai/dsh-agent'
 import type { GoalMessageSource, GoalRef, GoalView } from '@deepseek-ai/dsh-goal'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
@@ -17,6 +18,31 @@ export { renderGoalRoundPrompt } from './prompt.ts'
 
 export const name = 'goal-round-driver'
 export const inject = ['agents', 'goals', 'sessions']
+
+/** Automatic-continuation stop policy for one mounted driver. */
+export interface Config {
+  /** Consecutive failed tool results that stop automatic continuation of the active goal. */
+  maxConsecutiveFailures?: number
+}
+
+/** Schemastery config for the continuation stop policy. */
+export const Config: z<Config> = z.object({
+  maxConsecutiveFailures: z.number().step(1).min(1).default(3),
+})
+
+/** Fully materialized continuation policy. */
+interface ResolvedConfig {
+  readonly maxConsecutiveFailures: number
+}
+
+/** Validate config even when apply is called directly outside Loader normalization. */
+function resolveConfig(config: Config): ResolvedConfig {
+  const maxConsecutiveFailures = config.maxConsecutiveFailures ?? 3
+  if (!Number.isSafeInteger(maxConsecutiveFailures) || maxConsecutiveFailures < 1) {
+    throw new TypeError('maxConsecutiveFailures must be a positive safe integer')
+  }
+  return { maxConsecutiveFailures }
+}
 
 /** Identity reserved before a goal continuation enters the agent inbox. */
 interface RoundIdentity {
@@ -39,6 +65,8 @@ interface DriverState {
   readonly agent: Agent
   attempt: RoundAttempt | undefined
   competingQueued: boolean
+  /** Failed tool results since the last successful one in this lifecycle. */
+  consecutiveFailures: number
   needsCheckpoint: boolean
   requested: boolean
   run: Promise<void> | undefined
@@ -73,7 +101,8 @@ function renderThrown(value: unknown): string {
 }
 
 /** Install automatic same-session continuation and its race fences. */
-export function apply(ctx: Context): void {
+export function apply(ctx: Context, config: Config = {}): void {
+  const resolved = resolveConfig(config)
   const states = new Map<Agent, DriverState>()
 
   /** Create state for an exact currently live agent. */
@@ -84,6 +113,7 @@ export function apply(ctx: Context): void {
       agent,
       attempt: undefined,
       competingQueued: false,
+      consecutiveFailures: 0,
       needsCheckpoint: false,
       requested: false,
       run: undefined,
@@ -163,6 +193,17 @@ export function apply(ctx: Context): void {
 
     const goal = currentGoal(state)
     if (goal === undefined || goal.phase !== 'active' || goal.activation !== 'armed') return
+    // A streak of failing tool results means another round would repeat the same
+    // attempt, so automatic continuation stops with the failure streak as its
+    // recorded reason instead of burning the remaining round cap.
+    if (state.consecutiveFailures >= resolved.maxConsecutiveFailures) {
+      ctx.goals.block(agent, goalRef(goal), {
+        code: 'consecutive-failures',
+        message: `Automatic continuation stopped after ${state.consecutiveFailures} consecutive failed tool calls; `
+          + 'the failed calls are the tail of this session\'s tool results.',
+      })
+      return
+    }
     if (goal.roundsStarted >= goal.maxGoalRounds) {
       ctx.goals.block(agent, goalRef(goal), {
         code: 'round-limit',
@@ -254,6 +295,7 @@ export function apply(ctx: Context): void {
       const state = stateFor(agent)
       state.attempt = undefined
       state.competingQueued = false
+      state.consecutiveFailures = 0
       state.needsCheckpoint = false
     })
     ctx.on('agent/status', ({ agent, status }) => {
@@ -283,6 +325,9 @@ export function apply(ctx: Context): void {
     ctx.on('goal/changed', ({ agent, change }) => {
       const state = stateFor(agent)
       state.needsCheckpoint = true
+      // A human-authorized resume replaces the attempt that stopped, so the
+      // failure streak that stopped it must not block the resumed work again.
+      if (change.operation === 'resume') state.consecutiveFailures = 0
       // A host-initiated pause stops goal execution: abort the live turn so the
       // model cannot keep acting or resume in the same turn. A model-initiated
       // pause (update_goal inside its own turn) finishes normally.
@@ -325,6 +370,13 @@ export function apply(ctx: Context): void {
           if (state.attempt !== undefined && event.data.id === state.attempt.messageId) {
             state.attempt.phase = 'admitted'
           }
+          return
+        case 'tool/result':
+          // `isError` on the result block is the model-facing failure marker; the
+          // payload's optional `error` carries internal identity, not failure.
+          state.consecutiveFailures = event.data.message.content[0].isError === true
+            ? state.consecutiveFailures + 1
+            : 0
           return
         case 'turn/end':
           if (event.data.reason.kind === 'max-tokens') {
