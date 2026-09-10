@@ -22,7 +22,12 @@ afterEach(async () => {
   context = undefined
 })
 
-const PKG_CONFIG: PkgInspectConfig = { pkgDefaultLimit: 2, pkgMaxPackages: 5, pkgTimeoutMs: 15000 }
+const PKG_CONFIG: PkgInspectConfig & { pkgInstallTimeoutMs: number } = {
+  pkgDefaultLimit: 2,
+  pkgMaxPackages: 5,
+  pkgTimeoutMs: 15000,
+  pkgInstallTimeoutMs: 15000,
+}
 
 const WINGET_TABLE = [
   'Name                                                           Id                                                                                      Version            Available       Source',
@@ -197,7 +202,9 @@ describe('package-manager tools', () => {
     }
   }
 
-  async function setup(options: { approval?: unknown; subprocess?: unknown; pkg?: Partial<PkgInspectConfig> } = {}): Promise<Context> {
+  async function setup(
+    options: { approval?: unknown; subprocess?: unknown; pkg?: Partial<PkgInspectConfig & { pkgInstallTimeoutMs: number }> } = {},
+  ): Promise<Context> {
     const ctx = new Context()
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(ToolRuntime)
@@ -442,6 +449,88 @@ describe('package-manager tools', () => {
     })
     expect(result.isError).toBe(true)
     expect(resultText(result)).toContain('owning agent session')
+  })
+
+  it('runs exactly one fixed install argv behind an explicit approval, and nothing when denied', async () => {
+    const spawns: SubprocessSpawnSpec[] = []
+    const asks: ApprovalRequest[] = []
+    const subprocess = fakeSubprocess({ pip: { stdout: 'Successfully installed pypdf-6.18.0' } }, spawns)
+    const denied = await setup({ approval: fakeApproval(['rejected'], asks), subprocess })
+    const refused = await call(denied, { manager: 'pip', package: 'pypdf' }, 'pkg_install')
+    // The registry's explicit-approval gate refuses before dispatch, so a denied install never
+    // reaches the tool body and never spawns anything.
+    expect(refused.isError).toBe(true)
+    expect(resultText(refused)).toContain('rejected tool "pkg_install"')
+    expect(spawns).toEqual([])
+    expect(asks[0]?.toolName).toBe('pkg_install')
+
+    const allowed = await setup({ approval: fakeApproval(Array<ApprovalOutcome>(20).fill('allowed-once'), asks), subprocess })
+    const installed = await call(allowed, { manager: 'pip', package: 'pypdf' }, 'pkg_install')
+    expect(installed.isError).toBe(false)
+    expect(resultText(installed)).toContain('Install reported success by the package manager for pypdf (pip)')
+    expect(resultText(installed)).toContain('not a verified machine change')
+    expect(spawns).toHaveLength(1)
+    expect(spawns[0]?.argv).toEqual(['C:/stub/pip.exe', 'install', 'pypdf'])
+  })
+
+  it('rejects a package name that could act as a flag before spawning', async () => {
+    const spawns: SubprocessSpawnSpec[] = []
+    const ctx = await setup({
+      approval: fakeApproval(Array<ApprovalOutcome>(20).fill('allowed-once')),
+      subprocess: fakeSubprocess({}, spawns),
+    })
+    for (const pkg of ['--install-everything', 'a b', 'x;y', 'a/b', '$(id)', '']) {
+      const result = await call(ctx, { manager: 'winget', package: pkg }, 'pkg_install')
+      expect(result.isError).toBe(true)
+      expect(resultText(result)).toContain('invalid package')
+    }
+    expect(spawns).toEqual([])
+  })
+
+  it('uninstalls with its own fixed argv, so rollback is one reviewed command', async () => {
+    const spawns: SubprocessSpawnSpec[] = []
+    const asks: ApprovalRequest[] = []
+    const ctx = await setup({
+      approval: fakeApproval(Array<ApprovalOutcome>(20).fill('allowed-once'), asks),
+      subprocess: fakeSubprocess({ winget: { stdout: 'Successfully uninstalled' } }, spawns),
+    })
+    const result = await call(ctx, { manager: 'winget', package: '7zip.7zip' }, 'pkg_uninstall')
+    expect(result.isError).toBe(false)
+    expect(resultText(result)).toContain('Uninstall reported success by the package manager for 7zip.7zip (winget)')
+    expect(spawns[0]?.argv).toEqual(['C:/stub/winget.exe', 'uninstall', '--id', '7zip.7zip', '--exact', '--silent'])
+    expect(asks[0]?.toolName).toBe('pkg_uninstall')
+  })
+
+  it('reports absent managers, failed runs, and deadlines without claiming a change', async () => {
+    const allowed = (): unknown => fakeApproval(Array<ApprovalOutcome>(20).fill('allowed-once'))
+    const missing = await setup({ approval: allowed(), subprocess: fakeSubprocess({}, [], ['winget']) })
+    expect(resultText(await call(missing, { manager: 'winget', package: '7zip.7zip' }, 'pkg_install')))
+      .toContain('could not run: the package manager executable was not found')
+
+    const failed = await setup({ approval: allowed(), subprocess: fakeSubprocess({ npm: { exitCode: 2, stderr: 'EACCES\u202E denied' } }, []) })
+    const failedText = resultText(await call(failed, { manager: 'npm', package: 'left-pad' }, 'pkg_install'))
+    expect(failedText).toContain('failed: exited with code 2: EACCES denied')
+    expect(failedText).toContain('exit code: 2')
+
+    const timedOut = await setup({
+      approval: allowed(),
+      pkg: { pkgInstallTimeoutMs: 1000 },
+      subprocess: fakeSubprocess({ pip: { never: true } }, []),
+    })
+    expect(resultText(await call(timedOut, { manager: 'pip', package: 'pypdf' }, 'pkg_install')))
+      .toContain('failed: timed out after 1000ms')
+  })
+
+  it('requires an owning agent session for a mutation', async () => {
+    const ctx = await setup()
+    const result = await ctx.tools.execute({
+      signal: new AbortController().signal,
+      callId: ToolCallId('install-no-agent'),
+      name: 'pkg_install',
+      arguments: { manager: 'pip', package: 'pypdf' },
+    })
+    expect(result.isError).toBe(true)
+    expect(resultText(result)).toContain('requires approval')
   })
 })
 

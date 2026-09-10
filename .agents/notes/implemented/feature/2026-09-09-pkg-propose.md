@@ -1,4 +1,4 @@
-# Agent Note: Package proposals are read-only, and the install half waits for approval
+# Agent Note: Package proposals stay read-only
 
 Status: implemented
 
@@ -14,7 +14,7 @@ The installer plan's §4.4 flow asks for the proposed download, version, license
 
 The result carries the version the manager would install, the newest version the source lists, the locally recorded version when the manager reports one (absence is not evidence of absence, so `pkg_inspect` remains the tool for that question), the publisher, the license, the artifact location, and the hash the source publishes. The hash is labelled as reported rather than verified, because DSH does not fetch or check the artifact in this slice. Every field passes through the shared sanitizer, and the render states plainly that nothing was downloaded or installed and that installing needs an explicit confirmation step.
 
-The install, verify, and rollback half of §4.4 is deliberately **not** implemented here. Performing it expands both network reach (fetching an artifact) and machine mutation (running an installer), which §7 of the plan requires explicit approval for, and its slice gate demands a rollback rehearsal against a real package plus scope-escalation cases. The propose half adds no such surface: it reads metadata that a manager already fetches, and it changes nothing.
+The install, verify, and rollback half of §4.4 is a separate decision and not this slice's subject: performing it expands both network reach (fetching an artifact) and machine mutation (running an installer), which §7 of the plan requires explicit approval for. Installing and uninstalling a named package are implemented as fixed manager commands behind the tool registry's explicit approval gate ([mutation note](2026-09-09-pkg-mutation.md)); this note covers only what a proposal may report.
 
 ## Alternatives considered
 
@@ -26,4 +26,4 @@ The install, verify, and rollback half of §4.4 is deliberately **not** implemen
 
 ## Consequences
 
-A caller can present a concrete, sourced proposal and stop, and the model cannot turn a hostile package name into a flag or a command. The adversarial cases pin the name validation (including leading hyphens, paths, shell metacharacters, and over-long names), the denial path with no spawn, the fixed argv actually spawned, the failure/partial/timeout statuses, and the sanitization of every returned field. The remaining installer work — install, verify against an `apps_snapshot` baseline, and roll back — is recorded in the plan as awaiting explicit approval.
+A caller can present a concrete, sourced proposal and stop, and the model cannot turn a hostile package name into a flag or a command. The adversarial cases pin the name validation (including leading hyphens, paths, shell metacharacters, and over-long names), the denial path with no spawn, the fixed argv actually spawned, the failure/partial/timeout statuses, and the sanitization of every returned field. Verification stays with the snapshot/diff pair: [the mutation note](2026-09-09-pkg-mutation.md) keeps that rule for the install and uninstall tools, and rollback plus provenance verification of the fetched artifact remain unimplemented.

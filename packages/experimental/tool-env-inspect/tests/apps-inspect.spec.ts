@@ -34,7 +34,7 @@ const APPS_CONFIG: AppsInspectConfig = {
 }
 
 /** The package-manager half of the plugin config; these tests never probe a manager. */
-const PKG_PART = { pkgDefaultLimit: 20, pkgMaxPackages: 50, pkgTimeoutMs: 15000 }
+const PKG_PART = { pkgDefaultLimit: 20, pkgMaxPackages: 50, pkgTimeoutMs: 15000, pkgInstallTimeoutMs: 15000 }
 
 function resultText(result: { content: { type: string; text?: string }[] }): string {
   return result.content.filter(block => block.type === 'text').map(block => block.text).join('\n')

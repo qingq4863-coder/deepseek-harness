@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-09-09-pkg-propose.md
-2026-09-09-pkg-propose.md: 2f8d67f82ebc67788973d72ec408f7df9b2204a8
-2026-09-09-pkg-propose.zh.md: 2deca0fa2fad45c69ac302463413ce8bff9ce6a0
+2026-09-09-pkg-propose.md: 1edeb9575cb89fad46bab2ed23a3a42ffa1a900a
+2026-09-09-pkg-propose.zh.md: 5c840dc92fc5a8106e16e579f733ba40e51c8178

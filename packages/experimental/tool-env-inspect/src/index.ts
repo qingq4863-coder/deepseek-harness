@@ -21,6 +21,7 @@ import { defineTool } from '@deepseek-ai/dsh-tools'
 import { registerAppsTools } from './apps-tool.ts'
 import { registerPkgInspect } from './pkg-tool.ts'
 import { registerPkgPropose } from './pkg-propose.ts'
+import { registerPkgMutation } from './pkg-mutation.ts'
 import type { EnvCommandProbe, EnvVersionProbe } from './types.ts'
 
 export type * from './types.ts'
@@ -34,6 +35,8 @@ export { registerPkgInspect, renderPkgInspect } from './pkg-tool.ts'
 export type { PkgInspectArgs, PkgInspectConfig } from './pkg-tool.ts'
 export { PROPOSE_COVERAGE, PROPOSE_PROBES, registerPkgPropose, renderProposal, sanitizeProposal } from './pkg-propose.ts'
 export type { ProposeProbe } from './pkg-propose.ts'
+export { MUTATION_COMMANDS, registerPkgMutation, renderMutation } from './pkg-mutation.ts'
+export type { PkgMutationArgs, PkgMutationConfig, PkgMutationOutcome } from './pkg-mutation.ts'
 
 export const name = 'tool-env-inspect'
 export const inject = ['tools', 'approval', 'subprocess']
@@ -120,6 +123,12 @@ export interface Config {
    * outside it fails at load.
    */
   pkgTimeoutMs: number
+  /**
+   * Required deployment choice for the deadline of one `pkg_install`/`pkg_uninstall` run, in
+   * milliseconds. Installs legitimately run long, so the range is wider than a probe's; expiry
+   * aborts the process tree, and the accepted range is 1000-600000.
+   */
+  pkgInstallTimeoutMs: number
 }
 
 /** Schemastery configuration for the env-inspect tool consumer. */
@@ -135,6 +144,7 @@ export const Config: z<Config> = z.object({
   pkgDefaultLimit: z.number().required(),
   pkgMaxPackages: z.number().required(),
   pkgTimeoutMs: z.number().required(),
+  pkgInstallTimeoutMs: z.number().required(),
 })
 
 function pathDirectories(env: NodeJS.ProcessEnv): string[] {
@@ -262,6 +272,9 @@ export function apply(ctx: Context, config: Config): void {
   }
   if (!Number.isInteger(config.pkgTimeoutMs) || config.pkgTimeoutMs < 1000 || config.pkgTimeoutMs > 120000) {
     throw new Error('tool-env-inspect config.pkgTimeoutMs must be an integer between 1000 and 120000')
+  }
+  if (!Number.isInteger(config.pkgInstallTimeoutMs) || config.pkgInstallTimeoutMs < 1000 || config.pkgInstallTimeoutMs > 600000) {
+    throw new Error('tool-env-inspect config.pkgInstallTimeoutMs must be an integer between 1000 and 600000')
   }
   ctx.tools.register(defineTool({
     name: 'env_inspect',
@@ -463,4 +476,5 @@ export function apply(ctx: Context, config: Config): void {
   registerAppsTools(ctx, config)
   registerPkgInspect(ctx, config)
   registerPkgPropose(ctx, config)
+  registerPkgMutation(ctx, config)
 }

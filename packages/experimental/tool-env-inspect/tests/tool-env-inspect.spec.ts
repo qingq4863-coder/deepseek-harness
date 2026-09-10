@@ -144,6 +144,7 @@ async function setup(
     pkgDefaultLimit: 20,
     pkgMaxPackages: 50,
     pkgTimeoutMs: 15000,
+    pkgInstallTimeoutMs: 15000,
     ...options.apps,
   })
   return ctx
@@ -224,6 +225,7 @@ describe('env_inspect tool', () => {
       pkgDefaultLimit: 20,
       pkgMaxPackages: 50,
       pkgTimeoutMs: 15000,
+      pkgInstallTimeoutMs: 15000,
     })
     expect(ctx.tools.schemas().some(s => s.name === 'env_inspect')).toBe(true)
     expect(ctx.tools.schemas().some(s => s.name === 'env_version')).toBe(true)

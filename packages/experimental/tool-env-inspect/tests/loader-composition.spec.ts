@@ -124,6 +124,7 @@ const ENV_CONFIG = [
   '    pkgDefaultLimit: 5',
   '    pkgMaxPackages: 10',
   '    pkgTimeoutMs: 60000',
+  '    pkgInstallTimeoutMs: 60000',
 ]
 
 describe('tool-env-inspect real Loader composition through cordis.yml', () => {
@@ -315,6 +316,7 @@ describe('tool-env-inspect real Loader composition through cordis.yml', () => {
       pkgDefaultLimit: 5,
       pkgMaxPackages: 10,
       pkgTimeoutMs: 30000,
+      pkgInstallTimeoutMs: 30000,
       ...overrides,
     }
     const lines = Object.entries(config)

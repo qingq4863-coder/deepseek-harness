@@ -1,6 +1,6 @@
 {
   "name": "@deepseek-ai/dsh-experimental-tool-env-inspect",
-  "description": "Read-only model-facing env_inspect tool that resolves command names against PATH",
+  "description": "Experimental model-facing environment tools: PATH and version probing, installed-application inventory, package-manager proposals, and approval-gated install/uninstall",
   "version": "0.1.2-rc.1",
   "private": true,
   "repository": {
