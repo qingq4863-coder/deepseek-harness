@@ -207,8 +207,8 @@ export function renderProposal(result: PkgProposeResult): string {
   const proposal = result.proposal
   const lines = [
     `${proposal.resolvedId ?? proposal.package} (${proposal.manager})`
-      + `${proposal.version !== undefined ? ` — version ${proposal.version}` : ''}`
-      + `${proposal.publisher !== undefined ? ` — ${proposal.publisher}` : ''}`,
+      + (proposal.version !== undefined ? ` — version ${proposal.version}` : '')
+      + (proposal.publisher !== undefined ? ` — ${proposal.publisher}` : ''),
   ]
   if (proposal.installedVersion !== undefined) lines.push(`installed locally: ${proposal.installedVersion}`)
   if (proposal.latestVersion !== undefined && proposal.latestVersion !== proposal.version) lines.push(`latest available: ${proposal.latestVersion}`)
@@ -314,7 +314,7 @@ export function registerPkgPropose(ctx: Context, config: PkgInspectConfig): void
           },
         },
       },
-      render: (_args, value) => [{ type: 'text', text: renderProposal(value as PkgProposeResult) }],
+      render: (_args, value) => [{ type: 'text', text: renderProposal(value) }],
     },
     capability: {
       dataClass: 'public',
@@ -330,7 +330,7 @@ export function registerPkgPropose(ctx: Context, config: PkgInspectConfig): void
         throw new Error('pkg_propose requires an owning agent session so the approval decision is recorded')
       }
       const probe = PROPOSE_PROBES.find(entry => entry.id === args.manager)
-      if (probe === undefined) throw new Error(`invalid manager: unknown manager "${String(args.manager)}" (known: ${PKG_MANAGER_IDS.join(', ')})`)
+      if (probe === undefined) throw new Error(`invalid manager: unknown manager "${args.manager}" (known: ${PKG_MANAGER_IDS.join(', ')})`)
       if (!PACKAGE_NAME.test(args.package)) {
         throw new Error('invalid package: expected letters, digits, dot, underscore, plus, or hyphen, up to 128 characters, starting alphanumeric')
       }
@@ -360,7 +360,7 @@ export function registerPkgPropose(ctx: Context, config: PkgInspectConfig): void
         return blocked({ id: probe.id, status: 'denied', executable, note: `denied by approval decision (${decision})` })
       }
       const deadline = new AbortController()
-      const timer = setTimeout(() => deadline.abort(), config.pkgTimeoutMs)
+      const timer = setTimeout(() => { deadline.abort() }, config.pkgTimeoutMs)
       try {
         const handle = ctx.subprocess.spawn({
           argv: [executable, ...probe.argv(args.package)],

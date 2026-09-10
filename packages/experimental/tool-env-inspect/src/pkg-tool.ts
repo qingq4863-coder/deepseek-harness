@@ -108,7 +108,7 @@ export function registerPkgInspect(ctx: Context, config: PkgInspectConfig): void
       return { report: { id: manager.id, status: 'denied', count: 0, executable, note: `denied by approval decision (${decision})` }, packages: [] }
     }
     const deadline = new AbortController()
-    const timer = setTimeout(() => deadline.abort(), config.pkgTimeoutMs)
+    const timer = setTimeout(() => { deadline.abort() }, config.pkgTimeoutMs)
     try {
       const handle = ctx.subprocess.spawn({
         argv: [executable, ...manager.argv],
@@ -237,7 +237,7 @@ export function registerPkgInspect(ctx: Context, config: PkgInspectConfig): void
           },
         },
       },
-      render: (_args, value) => [{ type: 'text', text: renderPkgInspect(value as PkgInspectResult) }],
+      render: (_args, value) => [{ type: 'text', text: renderPkgInspect(value) }],
     },
     capability: {
       dataClass: 'sensitive',
@@ -260,7 +260,7 @@ export function registerPkgInspect(ctx: Context, config: PkgInspectConfig): void
       if (requested.length === 0) throw new Error('invalid managers: expected at least one manager name')
       for (const id of requested) {
         if (!PKG_MANAGER_IDS.includes(id)) {
-          throw new Error(`invalid managers: unknown manager "${String(id)}" (known: ${PKG_MANAGER_IDS.join(', ')})`)
+          throw new Error(`invalid managers: unknown manager "${id}" (known: ${PKG_MANAGER_IDS.join(', ')})`)
         }
       }
       const selected = PKG_PROBES.filter(manager => requested.includes(manager.id))

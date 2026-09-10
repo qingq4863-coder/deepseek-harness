@@ -288,7 +288,7 @@ export function registerAppsTools(ctx: Context, config: AppsInspectConfig): void
           },
         },
       },
-      render: (args, value) => [{ type: 'text', text: renderApps(value as AppsInspectResult, args as AppsInspectArgs) }],
+      render: (args, value) => [{ type: 'text', text: renderApps(value as AppsInspectResult, args) }],
     },
     capability: {
       dataClass: 'sensitive',

@@ -25,7 +25,6 @@ import type {
   AppScope,
   AppSourceId,
   AppSourceReport,
-  AppSourceStatus,
   InstalledApp,
 } from './types.ts'
 
@@ -465,7 +464,7 @@ export function parseInventoryOutput(stdout: string): RawInventory {
     const note = readString(source, 'note')
     sources.push({
       id: id as AppSourceId,
-      status: status as AppSourceStatus,
+      status,
       count: typeof count === 'number' && Number.isFinite(count) ? count : 0,
       ...note !== undefined ? { note: sanitizeField(note).value } : {},
     })

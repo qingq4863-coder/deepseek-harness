@@ -435,7 +435,7 @@ export function apply(ctx: Context, config: Config): void {
           return { command, error: `denied by approval decision (${decision})` }
         }
         const deadline = new AbortController()
-        const timer = setTimeout(() => deadline.abort(), versionTimeoutMs)
+        const timer = setTimeout(() => { deadline.abort() }, versionTimeoutMs)
         try {
           const handle = ctx.subprocess.spawn({
             argv: [executable, '--version'],

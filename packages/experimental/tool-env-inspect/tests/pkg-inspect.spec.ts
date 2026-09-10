@@ -195,7 +195,7 @@ describe('package-manager tools', () => {
             stderr: { readFrom: () => ({ text: run.stderr ?? '', nextOffset: 0, lossy: false }) },
           },
           done: run.never === true
-            ? new Promise((resolve) => { spec.signal?.addEventListener('abort', () => resolve({ exitCode: null, signal: 'SIGTERM' })) })
+            ? new Promise((resolve) => { spec.signal?.addEventListener('abort', () => { resolve({ exitCode: null, signal: 'SIGTERM' }) }) })
             : Promise.resolve({ exitCode: run.exitCode === undefined ? 0 : run.exitCode, signal: null }),
         } as unknown as SubprocessHandle
       },
