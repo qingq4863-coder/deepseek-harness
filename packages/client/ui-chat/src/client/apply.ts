@@ -76,6 +76,18 @@ export function apply(ctx: Context): void {
   const t = ctx.locale.bind(NS)
   const chatStore = createChatStore()
   const chatScrollPositions = new Map<SessionId, ChatScrollPosition>()
+  // A saved reader position serves a Conversation-view switch inside one
+  // Session. Leaving the Session drops it, so reopening that Session lands on
+  // the live tail instead of an old reading position.
+  ctx.effect(() => {
+    let current = ctx.sessions.list.getSnapshot().current
+    return ctx.sessions.list.subscribe(() => {
+      const next = ctx.sessions.list.getSnapshot().current
+      if (next === current) return
+      if (current !== undefined) chatScrollPositions.delete(current)
+      current = next
+    })
+  }, 'ui-chat: saved reader position lifetime')
   const transcriptView = new TranscriptViewPolicy(
     ctx.settingsScope.bind<ChatSettings>({ namespace: CHAT_SETTINGS_NAMESPACE }),
   )

@@ -1420,6 +1420,46 @@ describe('built-in conversation node Definitions', () => {
     ])
   })
 
+  it('hides a materialized prompt whose predecessor arrives with a later page instead of withdrawing it', () => {
+    const value = assembler([
+      at(10, 'request/header', {
+        reason: 'change',
+        header: { config: { provider: 'fake', model: 'fake' }, system: '# Stable' },
+      }),
+    ], true)
+    expect(node(snapshot(value), 'system-prompt')?.data).toEqual({ text: '# Stable' })
+
+    // The prepended page reveals this header's predecessor, so the header no
+    // longer repeats an unchanged prompt. The assembler refuses a withdrawn
+    // materialized node, so the Context must keep it hidden.
+    value.prepend([
+      at(5, 'request/header', {
+        reason: 'initial',
+        header: { config: { provider: 'fake', model: 'fake' }, system: '# Stable' },
+      }),
+    ], false)
+    value.flush()
+
+    const after = snapshot(value)
+    const prompts = [...after.nodes.values()]
+      .filter(candidate => candidate.kind === 'system-prompt')
+      .map(candidate => ({ anchorSeq: candidate.anchorSeq, visibility: candidate.visibility }))
+      .sort((left, right) => left.anchorSeq - right.anchorSeq)
+    expect(prompts).toEqual([
+      { anchorSeq: 5, visibility: 'visible' },
+      { anchorSeq: 10, visibility: 'hidden' },
+    ])
+    expect(after.order.map(key => after.nodes.get(key)?.anchorSeq)).toEqual([5])
+
+    // A thrown withdrawal would leave the fold wedged; later events still land.
+    value.append(at(11, 'user/message', textMessage('after-prepend', 'still folding'), { surfaceOp: 'append' }))
+    value.flush()
+    expect(node(snapshot(value), 'user')?.data).toMatchObject({
+      kind: 'user',
+      content: [{ type: 'text', text: 'still folding' }],
+    })
+  })
+
   it('orders the system field before the request messages while preserving message order', () => {
     const value = assembler([
       at(1, 'turn/start', { turn: 1 }),

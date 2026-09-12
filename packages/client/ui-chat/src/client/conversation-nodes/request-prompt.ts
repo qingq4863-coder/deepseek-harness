@@ -89,7 +89,21 @@ export function requestPromptDefinition(inspect: RequestPromptInspector): Conver
     update: context => context.state,
     buildViewNode: (context) => {
       const state = context.state
-      if (state === undefined || !state.showsPrompt || state.prompt.system === '') return null
+      if (state === undefined) return null
+      if (!state.showsPrompt || state.prompt.system === '') {
+        // A prepended page can reveal this header's predecessor and re-fold
+        // `showsPrompt` to false on an already materialized Context; the
+        // assembler refuses withdrawal, so the node hides instead.
+        const current = context.current.get('chat')
+        if (current === undefined || current === null) return null
+        return chatNode(
+          context,
+          'system-prompt',
+          state.anchorSeq,
+          { text: state.prompt.system },
+          { visibility: 'hidden' },
+        )
+      }
       return chatNode(context, 'system-prompt', state.anchorSeq, { text: state.prompt.system })
     },
   }

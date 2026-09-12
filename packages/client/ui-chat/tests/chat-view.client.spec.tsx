@@ -474,6 +474,21 @@ function renderedFlowKinds(container: HTMLElement): Array<string | undefined> {
     .map(row => row.dataset.chatFlowKind)
 }
 
+/** Drive the ChatView's single ResizeObserver callback from a test. */
+function installResizeObserver(): { readonly current: (() => void) | undefined } {
+  const handle: { current: (() => void) | undefined } = { current: undefined }
+  class ResizeObserverStub {
+    constructor(callback: ResizeObserverCallback) {
+      handle.current = () => { callback([], this as unknown as ResizeObserver) }
+    }
+
+    observe = vi.fn()
+    disconnect = vi.fn()
+  }
+  vi.stubGlobal('ResizeObserver', ResizeObserverStub)
+  return handle
+}
+
 function installScrollMetrics(element: HTMLElement, initialHeight: number, clientHeight: number) {
   let scrollHeight = initialHeight
   let scrollTop = 0
@@ -2341,6 +2356,37 @@ describe('ChatView', () => {
     fireEvent.scroll(scroller)
     fireEvent(scroller, new Event('scrollend'))
     expect(view.getByLabelText('回到底部')).toBeTruthy()
+  })
+
+  it('keeps a pinned reader at the bottom when content grows while a scroll sample is pending', () => {
+    const notify = installResizeObserver()
+    const h = makeHarness({ nodes: [user(1, 'q'), assistant(2, 'a')] })
+    const view = render(<h.ChatView {...h.props} />)
+    const scroller = view.container.querySelector('[class*="scroll"]') as HTMLDivElement
+    const metrics = installScrollMetrics(scroller, 1_000, 300)
+    // Content inserted above advances the delivered position (scroll
+    // anchoring); the sample that would attribute it is still pending.
+    metrics.setLayout(1_800, 1_300)
+    fireEvent.scroll(scroller)
+    act(() => { notify.current?.() })
+
+    expect(scroller.scrollTop).toBe(1_500)
+    expect(view.queryByLabelText('回到底部')).toBeNull()
+  })
+
+  it('does not yank a reader whose own scroll is still pending attribution', () => {
+    const notify = installResizeObserver()
+    const h = makeHarness({ nodes: [user(1, 'q'), assistant(2, 'a')] })
+    const view = render(<h.ChatView {...h.props} />)
+    const scroller = view.container.querySelector('[class*="scroll"]') as HTMLDivElement
+    const metrics = installScrollMetrics(scroller, 1_000, 300)
+    fireEvent.wheel(scroller)
+    scroller.scrollTop = 100
+    fireEvent.scroll(scroller)
+    metrics.setHeight(1_200)
+    act(() => { notify.current?.() })
+
+    expect(scroller.scrollTop).toBe(100)
   })
 
   it('one ResizeObserver owns pinned dynamic-height follow and ignores growth while away', () => {

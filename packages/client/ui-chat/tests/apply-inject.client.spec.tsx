@@ -160,6 +160,28 @@ describe('Chat inject API', () => {
     await b.runtime.dispose()
   })
 
+  it('drops the saved reader position when the Session stops being current', async () => {
+    const b = await bench()
+    const other = 'root-2' as SessionId
+    await b.runtime.sessions.add({
+      id: other,
+      summary: { title: 'O', displayTitle: 'O', cwd: '/proj' },
+      session: sessionFakeFor(),
+    }, { current: false })
+    const position = { anchorKey: 'node-1', anchorTop: 4, scrollTop: 12 }
+    b.chatViewApi(ROOT).injected.chatScroll.save(position)
+
+    // A Conversation-view remount inside the Session keeps its reader position.
+    expect(b.chatViewApi(ROOT).injected.chatScroll.read()).toEqual(position)
+    await b.runtime.sessions.setCurrent(ROOT)
+    expect(b.chatViewApi(ROOT).injected.chatScroll.read()).toEqual(position)
+
+    // Leaving the Session drops it, so reopening lands on the live tail.
+    await b.runtime.sessions.setCurrent(other)
+    expect(b.chatViewApi(ROOT).injected.chatScroll.read()).toBeNull()
+    await b.runtime.dispose()
+  })
+
   it('owns image loading, scroll memory, and optional closing-file mentions', async () => {
     const b = await bench()
     const { injected } = b.chatViewApi(ROOT)

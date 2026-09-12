@@ -18,6 +18,9 @@ import css from './ChatView.module.css'
 
 const FOLLOW_THRESHOLD = 24
 const SCROLL_SAMPLE_INTERVAL_MS = 500
+/** How long a trusted reader gesture keeps a pending scroll sample attributed to the reader. */
+const READER_GESTURE_WINDOW_MS = 1_000
+const READER_GESTURES = ['wheel', 'touchstart', 'touchmove', 'pointerdown', 'keydown'] as const
 
 /** Active column host when present; otherwise the view-local scroller. */
 function scrollerOf(from: HTMLElement): HTMLElement {
@@ -315,6 +318,8 @@ export function ChatView({
   )
   /** Last position delivered or written on the main thread. */
   const observedTopRef = useRef(0)
+  /** Timestamp of the latest trusted reader scroll gesture. */
+  const readerGestureAtRef = useRef(Number.NEGATIVE_INFINITY)
   /** Paging anchor: semantic row/position at click, updated by reader scrolls
    * while the request is pending and restored after the prepend lands. */
   const anchorRef = useRef<PagingAnchor | null>(null)
@@ -599,11 +604,18 @@ export function ChatView({
       scrollSamplePendingRef.current = true
       sampleTimer ??= window.setTimeout(sample, SCROLL_SAMPLE_INTERVAL_MS)
     }
+    // Trusted reader input distinguishes the reader's own pending move from a
+    // content-inserted position the sample has not attributed yet.
+    const onReaderGesture = (): void => { readerGestureAtRef.current = performance.now() }
     el.addEventListener('scroll', onScroll, { passive: true })
     el.addEventListener('scrollend', sample, { passive: true })
+    for (const type of READER_GESTURES) {
+      el.addEventListener(type, onReaderGesture, { passive: true })
+    }
     return () => {
       el.removeEventListener('scroll', onScroll)
       el.removeEventListener('scrollend', sample)
+      for (const type of READER_GESTURES) el.removeEventListener(type, onReaderGesture)
       if (sampleTimer !== undefined) window.clearTimeout(sampleTimer)
       scrollSamplePendingRef.current = false
     }
@@ -613,14 +625,17 @@ export function ChatView({
   // initializer a function initial value would need never exists.
   const followRef = useRef<(() => void) | null>(null)
   followRef.current = () => {
-    if (scrollSamplePendingRef.current) return
     const local = listRef.current
-    if (local !== null && atBottomRef.current) {
-      const el = scrollerOf(local)
-      el.scrollTop = el.scrollHeight
-      observedTopRef.current = el.scrollTop
-      chatScroll.save(null)
-    }
+    if (local === null || !atBottomRef.current) return
+    // A pending sample caused by the reader must settle first; a sample caused
+    // by content growing above the viewport must not keep the reader from the
+    // tail. Only the reader's own gestures make it the former.
+    if (scrollSamplePendingRef.current
+      && performance.now() - readerGestureAtRef.current <= READER_GESTURE_WINDOW_MS) return
+    const el = scrollerOf(local)
+    el.scrollTop = el.scrollHeight
+    observedTopRef.current = el.scrollTop
+    chatScroll.save(null)
   }
   // Streaming, tool disclosures, and other flow changes resize the column;
   // the sticky composer resizes outside it. This observer owns ChatView's
