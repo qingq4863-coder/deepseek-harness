@@ -862,10 +862,12 @@ Requires: `agents` · `goals` · `sessions`
 export interface Config {
   /** Consecutive failed tool results that stop automatic continuation of the active goal. */
   maxConsecutiveFailures?: number
+  /** User-rejected approval decisions that stop automatic continuation of the active goal. */
+  maxApprovalDenials?: number
 }
 ```
 
-Source: [`packages/goal/goal-round-driver/src/index.ts:23`](../packages/goal/goal-round-driver/src/index.ts)
+Source: [`packages/goal/goal-round-driver/src/index.ts:24`](../packages/goal/goal-round-driver/src/index.ts)
 
 <a id="deepseek-aidsh-headless"></a>
 
@@ -3000,7 +3002,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/fs/tool-str-replace-editor/src/index.ts:505`](../packages/fs/tool-str-replace-editor/src/index.ts)
+Source: [`packages/fs/tool-str-replace-editor/src/index.ts:515`](../packages/fs/tool-str-replace-editor/src/index.ts)
 
 <a id="deepseek-aidsh-tool-subagent"></a>
 

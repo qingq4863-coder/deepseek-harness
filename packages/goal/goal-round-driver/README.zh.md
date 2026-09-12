@@ -9,7 +9,7 @@ kind: "package-reference"
 
 ## 概述
 
-`dsh-goal-round-driver` 会在同一会话中自动继续 active 的 goal：每当 agent 空闲且存在 active、已启用续行并有剩余容量的 goal 时，驱动器就会启动下一个 Goal Round。每一轮都是朝目标前进的一次模型轮次，由保留的 goal-round 提示词驱动；只有来源为 goal 的 Round 会计入 goal 的 Round 上限，上限耗尽时 goal 会记录一个 blocker。工具调用持续失败时自动续行同样会停止：驱动器统计连续的失败工具结果，达到配置的 `maxConsecutiveFailures` 时以稳定代码 `consecutive-failures` 阻塞 goal，使 goal 不会把剩余轮次耗在重复同一种失败的尝试上。Round 上限属于 goal 定义，面向模型的阻塞阈值属于 `dsh-tool-goal`；这个停止上限属于驱动器，因为它只决定是否继续。当任务应跨多轮自行推进时，与 `dsh-goal` 和 `dsh-tool-goal` 一起挂载它；当每一步都需要人工 steering（中途引导）时，不要挂载。
+`dsh-goal-round-driver` 会在同一会话中自动继续 active 的 goal：每当 agent 空闲且存在 active、已启用续行并有剩余容量的 goal 时，驱动器就会启动下一个 Goal Round。每一轮都是朝目标前进的一次模型轮次，由保留的 goal-round 提示词驱动；只有来源为 goal 的 Round 会计入 goal 的 Round 上限，上限耗尽时 goal 会记录一个 blocker。工具调用持续失败时自动续行同样会停止：驱动器统计连续的失败工具结果，达到配置的 `maxConsecutiveFailures` 时以稳定代码 `consecutive-failures` 阻塞 goal，使 goal 不会把剩余轮次耗在重复同一种失败的尝试上。被拒绝的工作也会让它停止：驱动器统计已准入轮次中用户拒绝的审批，达到配置的 `maxApprovalDenials` 时以稳定代码 `approval-denials` 阻塞 goal，而不是再次询问。Round 上限属于 goal 定义，面向模型的阻塞阈值属于 `dsh-tool-goal`；这两个停止上限都属于驱动器，因为它只决定是否继续。当任务应跨多轮自行推进时，与 `dsh-goal` 和 `dsh-tool-goal` 一起挂载它；当每一步都需要人工 steering（中途引导）时，不要挂载。
 
 ## 目录
 
@@ -42,6 +42,7 @@ kind: "package-reference"
   name: '@deepseek-ai/dsh-goal-round-driver'
   config:
     maxConsecutiveFailures: 3
+    maxApprovalDenials: 2
 ```
 
 `maxGoalRounds` 属于 goal 定义，面向模型的阻塞阈值属于 `dsh-tool-goal`；在驱动器中重复任一数值都可能产生分歧策略。
@@ -49,6 +50,7 @@ kind: "package-reference"
 | 字段 | 默认值 | 含义 |
 |---|---|---|
 | `maxConsecutiveFailures` | `3` | 使 active goal 的自动续行停止的连续失败工具结果数；小于 1 的值在加载时失败 |
+| `maxApprovalDenials` | `2` | 使 active goal 的自动续行停止的、已准入 goal 轮次中用户拒绝的审批数；小于 1 的值在加载时失败 |
 
 该值是部署策略：模型无法通过任何 goal 工具触及它，省略该字段的组合接受默认值。
 
@@ -61,6 +63,8 @@ kind: "package-reference"
 Round 只在整个 agent 进入 idle 时启动；完成、暂停和阻塞会阻止续行；宿主发起的暂停还会中止正在运行的轮次，而模型在自己轮次内发起的暂停会正常结束。编辑只会通过修订栅栏使进行中的 Round 失效，驱动器会继续新修订。驱动器也会在以下情况自行停止：轮次因 max tokens 结束、持久性写入失败、agent 被取消、插件卸载，或 Round 上限耗尽——上限耗尽时它会以稳定代码 `round-limit` 记录一个 blocker。取消绝不会自动重启 Round：Round 已在进行或已排入队列的 goal 会在下一次 idle 时被暂停；与 goal 尝试无关的取消只会停用续行。
 
 失败连击以同样方式停止续行：在预留 Round 之前，驱动器把本会话中观察到的连续失败工具结果与 `maxConsecutiveFailures` 比较，达到阈值时以稳定代码 `consecutive-failures` 阻塞 goal，并在消息中点明连击长度。失败的调用本身留在会话日志里，那正是 blocker 所指的失败清单；驱动器绝不重试其中任何一次。任何成功的工具结果都会清零连击，用户授权的 resume 同样如此——这正是被 resume 的 goal 从干净计数开始、而不会因当初使它停止的连击再次被阻塞的原因。
+
+被拒绝的审批以同样方式停止续行，但它只统计用户真正拒绝的内容。驱动器观察持久的 `approval/decided` 结果，仅在本会话自己预留的轮次处于已准入状态时对 `rejected` 加一；因此人类轮次、被撤回的请求（`cancelled`）以及 fail-closed 的 `unavailable` 回答者都不会消耗 goal 的拒绝额度。达到 `maxApprovalDenials` 时，驱动器会在预留下一个 Round 之前以稳定代码 `approval-denials` 阻塞 goal，并在消息中点明计数；`approval/asked` + `approval/decided` 审计对留在会话日志中，正是 blocker 所指的被拒决定。驱动器既不会以另一种形式重发被拒绝的请求，也不会扩大需要审批的范围。用户授权的 resume 会在被恢复的工作继续之前清零计数，下一个 goal 也会从干净的计数开始。
 
 ### resume、fork 或卸载之后
 
@@ -139,6 +143,7 @@ Round 只在整个 agent 进入 idle 时启动；完成、暂停和阻塞会阻�
 - **已接受队列的卸载竞态**——Cordis 插件卸载是异步的。已经被 agent inbox 接受的 goal 提示词可以在卸载开始前启动并消耗其 Round；teardown 随后会取消请求、停用 goal 的续行并等待完全停稳。不会再启动后续 Round。
 - **只有 Round 上限，不是资源预算**——token、货币、时间与提供方配额策略保持独立。对应的会话事件不会归属于 goal 消息，也不会映射为 goal 阻塞代码。
 - **失败连击不是重试策略**——该停止统计会话中观察到的每一个连续失败工具结果，包括来自用户发起轮次的失败，且绝不重试失败的调用。停止之后，只有用户授权的 resume 才能继续该 goal。
+- **拒绝计数不是审批策略**——该停止只观察审批 seam 已在已准入 goal 轮次中作出的决定；它既不增加也不移除任何审批要求，且计数是进程内的，宿主重启后会从后续决定重新推导。
 - **异常情况不自动重试**——暂时性的提供方与持久化失败需要之后由用户授权 resume，而不会采用隐式重试策略。
 
 <a id="dev-note"></a>

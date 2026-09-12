@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-`dsh-goal-round-driver` automatically continues an active goal in the same session: whenever the agent is idle with an active, armed goal and remaining round capacity, the driver starts the next goal round. Each round is one model turn toward the objective, driven by a retained goal-round prompt; only goal-sourced rounds count against the goal's round cap, and the goal records a blocker when the cap is exhausted. Automatic continuation also stops when tool calls keep failing: the driver counts consecutive failed tool results and blocks the goal with the stable code `consecutive-failures` once they reach the configured `maxConsecutiveFailures`, so a goal cannot spend its remaining rounds repeating an attempt that fails the same way. The round cap belongs to the goal definition and the model-facing blocked threshold belongs to `dsh-tool-goal`; this stop bound belongs to the driver, because it decides only whether to continue. Mount it together with `dsh-goal` and `dsh-tool-goal` when a task should work itself toward completion across rounds; leave it out when every step needs human steering.
+`dsh-goal-round-driver` automatically continues an active goal in the same session: whenever the agent is idle with an active, armed goal and remaining round capacity, the driver starts the next goal round. Each round is one model turn toward the objective, driven by a retained goal-round prompt; only goal-sourced rounds count against the goal's round cap, and the goal records a blocker when the cap is exhausted. Automatic continuation also stops when tool calls keep failing: the driver counts consecutive failed tool results and blocks the goal with the stable code `consecutive-failures` once they reach the configured `maxConsecutiveFailures`, so a goal cannot spend its remaining rounds repeating an attempt that fails the same way. It stops for refused work too: approvals the user rejects during admitted rounds are counted, and at the configured `maxApprovalDenials` the driver blocks the goal with the stable code `approval-denials` instead of asking again. The round cap belongs to the goal definition and the model-facing blocked threshold belongs to `dsh-tool-goal`; both stop bounds belong to the driver, because it decides only whether to continue. Mount it together with `dsh-goal` and `dsh-tool-goal` when a task should work itself toward completion across rounds; leave it out when every step needs human steering.
 
 ## Table of Contents
 
@@ -42,6 +42,7 @@ Mount the driver beside the goal service and the goal tools.
   name: '@deepseek-ai/dsh-goal-round-driver'
   config:
     maxConsecutiveFailures: 3
+    maxApprovalDenials: 2
 ```
 
 `maxGoalRounds` belongs to the goal definition, while the model-facing blocked threshold belongs to `dsh-tool-goal`; duplicating either value in the driver could produce divergent policy.
@@ -49,6 +50,7 @@ Mount the driver beside the goal service and the goal tools.
 | Field | Default | Meaning |
 |---|---|---|
 | `maxConsecutiveFailures` | `3` | Consecutive failed tool results that stop automatic continuation of the active goal; a value below 1 fails at load |
+| `maxApprovalDenials` | `2` | Approvals the user rejected during admitted goal rounds that stop automatic continuation of the active goal; a value below 1 fails at load |
 
 The value is deployment policy: the model never reaches it through a goal tool, and a composition that omits the field accepts the default.
 
@@ -61,6 +63,8 @@ With an exact live agent idle, an active armed goal, and remaining capacity, the
 A round starts only at whole-agent idle, and completion, pause, and blocking suppress continuation; a host-initiated pause also aborts the turn already running, while a model-initiated pause inside its own turn finishes normally. An edit only invalidates an in-flight round through the revision fence, and the driver continues the new revision. The driver also stops on its own when a turn ends on max tokens, a durability write fails, the agent is cancelled, the plugin unloads, or the round cap is exhausted — at the cap it records a blocker with the stable code `round-limit`. Cancellation never auto-restarts a round: a goal whose round was under way or already queued is paused at the next idle point, and a cancellation unrelated to a goal attempt only disarms continuation.
 
 A failure streak stops continuation the same way: before reserving a round the driver compares the consecutive failed tool results it has observed in this session against `maxConsecutiveFailures`, and at the threshold it blocks the goal with the stable code `consecutive-failures` and a message naming the streak. The failed calls themselves stay in the session log, which is the failure list the blocker refers to, and the driver never retries one. Any successful tool result clears the streak, and so does a human-authorized resume, which is why a resumed goal starts from a clean count rather than re-blocking on the streak that stopped it.
+
+A denied approval stops continuation the same way, but it counts only what the user actually refused. The driver observes the durable `approval/decided` outcome and increments only on `rejected` while the session's own reserved round is admitted, so a human turn, a withdrawn request (`cancelled`), and the fail-closed `unavailable` answerer never spend the goal's denial budget. At `maxApprovalDenials` the driver blocks the goal with the stable code `approval-denials` before reserving another round, naming the count; the `approval/asked` + `approval/decided` audit pairs stay in the session log as the rejected decisions the blocker refers to. The driver neither re-asks a denied request in another form nor widens what needs approval. A human-authorized resume clears the count before the resumed work continues, and the next goal starts from a clean count.
 
 ### After resume, fork, or unload
 
@@ -139,6 +143,7 @@ These limits define when the driver is a poor fit or needs special care. They ar
 - **Accepted-queue unload race** — Cordis plugin unload is asynchronous. A goal prompt already accepted by the agent inbox can begin and consume its round before unload starts; teardown then cancels the request, disarms the goal, and awaits quiescence. No later round starts.
 - **Round cap, not resource budget** — token, currency, time, and provider quota policies remain independent. Their session events are not attributed to the goal message or mapped into goal blocker codes.
 - **Failure streak, not a retry policy** — the stop counts every consecutive failed tool result observed in the session, including failures from a human-initiated turn, and it never retries a failed call. After a stop, only a human-authorized resume continues the goal.
+- **Denial count, not an approval policy** — the stop observes decisions the approval seam already made during an admitted goal round; it neither adds nor removes an approval requirement, and its count is process-local, so a host restart re-derives it from later decisions.
 - **No abnormal auto-retry** — transient provider and persistence failures require a later human-authorized resume rather than an implicit retry policy.
 
 <a id="dev-note"></a>

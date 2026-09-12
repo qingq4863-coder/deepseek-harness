@@ -8,6 +8,7 @@ import { FiberState } from '@deepseek-ai/cordis'
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import type { Agent, PreStepDecision } from '@deepseek-ai/dsh-agent'
+import type { ApprovalOutcome } from '@deepseek-ai/dsh-user-approval'
 import type { GoalMessageSource, GoalRef, GoalView } from '@deepseek-ai/dsh-goal'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock, MessageId, MessageSource } from '@deepseek-ai/dsh-llm'
@@ -23,16 +24,20 @@ export const inject = ['agents', 'goals', 'sessions']
 export interface Config {
   /** Consecutive failed tool results that stop automatic continuation of the active goal. */
   maxConsecutiveFailures?: number
+  /** User-rejected approval decisions that stop automatic continuation of the active goal. */
+  maxApprovalDenials?: number
 }
 
 /** Schemastery config for the continuation stop policy. */
 export const Config: z<Config> = z.object({
   maxConsecutiveFailures: z.number().step(1).min(1).default(3),
+  maxApprovalDenials: z.number().step(1).min(1).default(2),
 })
 
 /** Fully materialized continuation policy. */
 interface ResolvedConfig {
   readonly maxConsecutiveFailures: number
+  readonly maxApprovalDenials: number
 }
 
 /** Validate config even when apply is called directly outside Loader normalization. */
@@ -41,7 +46,11 @@ function resolveConfig(config: Config): ResolvedConfig {
   if (!Number.isSafeInteger(maxConsecutiveFailures) || maxConsecutiveFailures < 1) {
     throw new TypeError('maxConsecutiveFailures must be a positive safe integer')
   }
-  return { maxConsecutiveFailures }
+  const maxApprovalDenials = config.maxApprovalDenials ?? 2
+  if (!Number.isSafeInteger(maxApprovalDenials) || maxApprovalDenials < 1) {
+    throw new TypeError('maxApprovalDenials must be a positive safe integer')
+  }
+  return { maxConsecutiveFailures, maxApprovalDenials }
 }
 
 /** Identity reserved before a goal continuation enters the agent inbox. */
@@ -67,6 +76,8 @@ interface DriverState {
   competingQueued: boolean
   /** Failed tool results since the last successful one in this lifecycle. */
   consecutiveFailures: number
+  /** User-rejected approval decisions since the last reset in this lifecycle. */
+  approvalDenials: number
   needsCheckpoint: boolean
   requested: boolean
   run: Promise<void> | undefined
@@ -95,6 +106,11 @@ function goalRef(goal: GoalView): GoalRef {
   return { id: goal.id, revision: goal.revision }
 }
 
+/** Whether one approval outcome is an explicit user denial. */
+function isApprovalDenial(outcome: ApprovalOutcome): boolean {
+  return outcome === 'rejected'
+}
+
 /** Human-readable unexpected values for logs. */
 function renderThrown(value: unknown): string {
   return value instanceof Error ? value.message : String(value)
@@ -114,6 +130,7 @@ export function apply(ctx: Context, config: Config = {}): void {
       attempt: undefined,
       competingQueued: false,
       consecutiveFailures: 0,
+      approvalDenials: 0,
       needsCheckpoint: false,
       requested: false,
       run: undefined,
@@ -201,6 +218,14 @@ export function apply(ctx: Context, config: Config = {}): void {
         code: 'consecutive-failures',
         message: `Automatic continuation stopped after ${state.consecutiveFailures} consecutive failed tool calls; `
           + 'the failed calls are the tail of this session\'s tool results.',
+      })
+      return
+    }
+    if (state.approvalDenials >= resolved.maxApprovalDenials) {
+      ctx.goals.block(agent, goalRef(goal), {
+        code: 'approval-denials',
+        message: `Automatic continuation stopped after ${state.approvalDenials} user-rejected approval decisions; `
+          + 'the rejected decisions are in this session\'s approval audit.',
       })
       return
     }
@@ -296,6 +321,7 @@ export function apply(ctx: Context, config: Config = {}): void {
       state.attempt = undefined
       state.competingQueued = false
       state.consecutiveFailures = 0
+      state.approvalDenials = 0
       state.needsCheckpoint = false
     })
     ctx.on('agent/status', ({ agent, status }) => {
@@ -327,7 +353,10 @@ export function apply(ctx: Context, config: Config = {}): void {
       state.needsCheckpoint = true
       // A human-authorized resume replaces the attempt that stopped, so the
       // failure streak that stopped it must not block the resumed work again.
-      if (change.operation === 'resume') state.consecutiveFailures = 0
+      if (change.operation === 'resume' || change.operation === 'create') {
+        state.consecutiveFailures = 0
+        state.approvalDenials = 0
+      }
       // A host-initiated pause stops goal execution: abort the live turn so the
       // model cannot keep acting or resume in the same turn. A model-initiated
       // pause (update_goal inside its own turn) finishes normally.
@@ -377,6 +406,13 @@ export function apply(ctx: Context, config: Config = {}): void {
           state.consecutiveFailures = event.data.message.content[0].isError === true
             ? state.consecutiveFailures + 1
             : 0
+          return
+        case 'approval/decided':
+          // Only approvals issued during an admitted automatic round consume the
+          // goal's denial budget; a human turn must not pause an armed goal.
+          if (state.attempt?.phase === 'admitted' && isApprovalDenial(event.data.outcome)) {
+            state.approvalDenials += 1
+          }
           return
         case 'turn/end':
           if (event.data.reason.kind === 'max-tokens') {

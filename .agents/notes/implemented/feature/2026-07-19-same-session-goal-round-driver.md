@@ -16,7 +16,7 @@ That bridge has concurrency and durability obligations. Human input, cancellatio
 
 The hierarchy is Goal → Goal Round → Turn → Step. A goal round is the outer continuation policy iteration; it becomes one goal-sourced session turn, and that turn can contain any number of ordinary model/tool steps. Human turns in the same session are not goal rounds and never increment `roundsStarted`.
 
-The plugin's only configuration is `maxConsecutiveFailures`, the consecutive-failure stop bound it owns because it decides whether to continue a goal. `maxGoalRounds` is resolved and persisted by `dsh-goal`, and the same-condition blocking threshold is resolved and prompted by `dsh-tool-goal`; repeating either of those tunables in the driver would create multiple owners for one policy.
+The plugin's configuration is the stop policy it owns because it decides whether to continue a goal: `maxConsecutiveFailures`, the consecutive-failure stop bound, and `maxApprovalDenials`, the count of approvals the user rejected while the driver's own round was admitted. Both are validated plugin fields with declared defaults, and the plugin rejects an unusable value before installing anything. `maxGoalRounds` is resolved and persisted by `dsh-goal`, and the same-condition blocking threshold is resolved and prompted by `dsh-tool-goal`; repeating either of those tunables in the driver would create multiple owners for one policy.
 
 ### Reservation and admission
 
@@ -72,6 +72,8 @@ An inbox acceptance can win the microtask race immediately before plugin unload 
 The unit suite uses the real agent loop and session service with only the model scripted. It covers exact sequential admission and cap enforcement, load/resume inertness, every outcome classification, rate limiting, request errors, max tokens, downstream prompt veto, pre-admission and in-flight cancellation, unrelated-human cancellation, failed-pause fallback, human-input ordering, queued and downstream revision races, forged goal attribution, failed mutation and turn checkpoints including a later one-shot injection, scheduler and custom-agent failures, session-start reset, exact lifecycle retirement, and queued/running plugin teardown. The new driver source has per-file 100% statement, branch, function, and line coverage.
 
 A keyless ACP snapshot mounts the shipped automation app with the real goal domain, goal tools, goal driver, agent loop, persistence, and replay adapter through `cordis.yml`. One human-originated turn creates and inspects a two-round goal, the first automatic turn stops normally, and ACP cancellation of a deliberately stalled second round records a durable pause. The normalized wire transcript and external JSONL assertions prove one session, round sources `1, 2`, the lifecycle mutation, and exact replay accounting without using `echo-agent` as an application surrogate.
+
+`tests/loader-composition.spec.ts` boots a test-only `cordis.yml` through the Loader over the real session store, session projection, prompt, tool, agent, and goal services. It asserts that the composed driver reserves a goal round whose content is exactly the package-owned prompt for the live goal, that a stop policy written in the document is accepted, and that an unusable bound fails the row while the composition loads.
 
 The core cancellation test proves notification order and containment: observers run only for effective cancellation, can queue replacement work before the inbox clear, cannot veto later observers by throwing, and an idle call emits nothing.
 

@@ -6,6 +6,7 @@ import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
 import GoalService, { GoalId } from '@deepseek-ai/dsh-goal'
 import type { GoalView } from '@deepseek-ai/dsh-goal'
+import ApprovalService from '@deepseek-ai/dsh-user-approval'
 import { createUserMessage, LlmAdapter, LlmError, ToolCallId } from '@deepseek-ai/dsh-llm'
 import type { GenerateOptions, StreamChunk } from '@deepseek-ai/dsh-llm'
 import { SessionId } from '@deepseek-ai/dsh-session'
@@ -87,12 +88,17 @@ afterEach(async () => {
 })
 
 /** Mount a real loop with only its model scripted. */
-async function harness(script: ScriptEntry[], config: goalSession.Config = {}): Promise<Harness> {
+async function harness(
+  script: ScriptEntry[],
+  config: goalSession.Config = {},
+  approvalPolicy?: 'ask' | 'never',
+): Promise<Harness> {
   const ctx = new Context()
   contexts.push(ctx)
   await mountAgentLoopTestDependencies(ctx)
   await ctx.plugin(SessionProjectionRegistry)
   await ctx.plugin(GoalService)
+  if (approvalPolicy !== undefined) await ctx.plugin(ApprovalService, { policy: approvalPolicy })
   const driver = await ctx.plugin(goalSession, config)
   await ctx.plugin(AgentLoop, { agents: [] })
   const adapter = new ScriptedAdapter(script)
@@ -1164,6 +1170,25 @@ describe('consecutive failure stop policy', () => {
     }))
   }
 
+  /** Register a tool whose governed approval request is its complete operation. */
+  function registerApprovalTool(ctx: Context): void {
+    ctx.tools.register(defineContentToolFixture({
+      name: 'requires-approval',
+      description: 'requires approval',
+      parameters: {},
+      async execute(_args, exec) {
+        if (exec.agent === undefined) throw new Error('fixture requires an agent')
+        const outcome = await ctx.approval.request({
+          agent: exec.agent,
+          toolName: 'requires-approval',
+          callId: exec.callId,
+          signal: exec.signal,
+        })
+        return [{ type: 'text', text: outcome }]
+      },
+    }))
+  }
+
   it('stops automatic continuation after the configured consecutive tool failures', async () => {
     const test = await harness([
       failingCall('f1'), textResponse('round one done'),
@@ -1238,10 +1263,80 @@ describe('consecutive failure stop policy', () => {
     expect(test.adapter.requests).toHaveLength(7)
   })
 
+  it('stops automatic continuation after the configured approval denials', async () => {
+    const test = await harness([
+      toolCallResponse([{ id: 'a1', name: 'requires-approval' }]), textResponse('round one done'),
+      toolCallResponse([{ id: 'a2', name: 'requires-approval' }]), textResponse('round two done'),
+    ], {}, 'never')
+    registerApprovalTool(test.ctx)
+    test.ctx.goals.create(test.agent, { objective: 'stop after denials', maxGoalRounds: 9 })
+
+    const final = await waitForGoal(test.ctx, test.agent, goal => goal?.phase === 'blocked')
+
+    expect(final?.blockedReason?.code).toBe('approval-denials')
+    expect(final?.blockedReason?.message).toContain('2 user-rejected approval decisions')
+    expect(final).toMatchObject({ roundsStarted: 2, activation: 'disarmed' })
+    expect(test.adapter.requests).toHaveLength(4)
+  })
+
+  it('honors a configured approval-denial threshold', async () => {
+    const test = await harness([
+      toolCallResponse([{ id: 'a1', name: 'requires-approval' }]), textResponse('round one done'),
+    ], { maxApprovalDenials: 1 }, 'never')
+    registerApprovalTool(test.ctx)
+    test.ctx.goals.create(test.agent, { objective: 'stop after one denial', maxGoalRounds: 9 })
+
+    const final = await waitForGoal(test.ctx, test.agent, goal => goal?.phase === 'blocked')
+
+    expect(final?.blockedReason?.code).toBe('approval-denials')
+    expect(final).toMatchObject({ roundsStarted: 1, activation: 'disarmed' })
+    expect(test.adapter.requests).toHaveLength(2)
+  })
+
+  it('clears approval denials when a human-authorized resume rearms the goal', async () => {
+    const test = await harness([
+      toolCallResponse([{ id: 'a1', name: 'requires-approval' }]), textResponse('round one done'),
+      toolCallResponse([{ id: 'a2', name: 'requires-approval' }]), textResponse('round two done'),
+      toolCallResponse([{ id: 'a3', name: 'requires-approval' }]), textResponse('round three done'),
+    ], {}, 'never')
+    registerApprovalTool(test.ctx)
+    test.ctx.goals.create(test.agent, { objective: 'resume after denials', maxGoalRounds: 3 })
+
+    const stopped = await waitForGoal(test.ctx, test.agent, goal => goal?.phase === 'blocked')
+    expect(stopped?.blockedReason?.code).toBe('approval-denials')
+
+    test.ctx.goals.resume(test.agent, { id: stopped!.id, revision: stopped!.revision })
+
+    const final = await waitForGoal(test.ctx, test.agent, goal => goal?.roundsStarted === 3 && goal.phase === 'blocked')
+
+    expect(final?.blockedReason?.code).toBe('round-limit')
+    expect(test.adapter.requests).toHaveLength(6)
+  })
+
+  it('does not count unavailable approvals as user denials', async () => {
+    const test = await harness([
+      toolCallResponse([{ id: 'a1', name: 'requires-approval' }]), textResponse('round one done'),
+      toolCallResponse([{ id: 'a2', name: 'requires-approval' }]), textResponse('round two done'),
+      textResponse('round three done'),
+    ])
+    registerApprovalTool(test.ctx)
+    await test.ctx.plugin(ApprovalService)
+    test.ctx.goals.create(test.agent, { objective: 'distinguish unavailable approval', maxGoalRounds: 3 })
+
+    const final = await waitForGoal(test.ctx, test.agent, goal => goal?.phase === 'blocked')
+
+    expect(final?.blockedReason?.code).toBe('round-limit')
+    expect(final).toMatchObject({ roundsStarted: 3, activation: 'disarmed' })
+    expect(test.adapter.requests).toHaveLength(5)
+  })
+
   it('rejects an invalid direct configuration before installing anything', () => {
     expect(() => {
       goalSession.apply(new Context(), { maxConsecutiveFailures: 0 })
     }).toThrow('maxConsecutiveFailures must be a positive safe integer')
+    expect(() => {
+      goalSession.apply(new Context(), { maxApprovalDenials: 0 })
+    }).toThrow('maxApprovalDenials must be a positive safe integer')
   })
 
   it('drives a goal under a direct apply that resolves the default threshold', async () => {

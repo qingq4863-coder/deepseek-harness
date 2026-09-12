@@ -24,6 +24,9 @@
       "path": "../../llm/llm"
     },
     {
+      "path": "../../interaction/user-approval"
+    },
+    {
       "path": "../../core/session"
     },
     {
