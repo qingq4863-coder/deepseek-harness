@@ -18,6 +18,10 @@ Status: implemented
 
 每个已声明字段都是描述性的：注册表校验取值，上限读取 `risk`；而 `dataClass`、各作用域、`network` 与 `reversible` 服务于审计以及尚不存在的消费者。声明一个取值永远不会授予授权。
 
+命令执行工具以同样方式声明，并落在非 `prohibited` 档的最高处。`bash`（`dsh-tool-bash`）与 `pwsh`（`dsh-tool-pwsh`）为 `dataClass: 'sensitive'`、`risk: 'high'`、`reversible: false`、`approval: 'scoped'`，其读、写、网络作用域点明调用方会话的沙箱模式——也就是真正约束一条命令的边界——而不是沙箱策略自己拥有、且随每次调用变化 的路径与目标清单。命令执行器可以读取、改动并触达其会话沙箱模式所放行的一切，包括它从未有意针对的凭据，因此 `sensitive` 与 `high` 是诚实的取值；`prohibited` 不是，因为该工具是会被正常运行的合法工具，而规划把那一档留给绝不应运行的动作。`approval` 保持 `scoped`，因为沙箱策略与工具自身的逐次升级审批才是门禁：声明 `explicit` 会给每一条命令都加上一个注册级提问。
+
+面向会话与提供方的工具以同样方式声明，并沿用写入工具已经确立的可逆性规则：harness 不提供撤销，因此改变持久状态的工具为 `reversible: false`，无论记录是否保留旧值；只读工具为 `reversible: true`，因为它没有可撤销的东西。`get_goal` 只读且可逆；`create_goal` 与 `update_goal` 会变更且不可逆；`todo_write` 替换会话的任务清单且不可逆；`job_output` 与 `job_list` 只读且可逆；`job_kill` 终止本会话拥有的进程且不可逆。后者也是这一组里唯一的 `medium`：其余都是 `low`，因为它们都无法触达机器——goal、任务清单与作业注册表都是会话拥有的状态，而正是仓库自己的作业注册表把 `job_kill` 限制在本会话启动的进程上。`web_fetch` 与 `web_search` 为 `dataClass: 'public'`，其 `network` 点明约束它们的边界——已挂载抓取提供方所放行的目标、以及已挂载搜索提供方的端点——并采用 `automatic` 审批，这正是规划的风险表对读取公开网页内容已经规定的。`job_output` 为 `sensitive`，因为后台作业的输出就是该作业产生的内容，对 shell 作业而言即命令输出；`job_list` 只携带 id、kind、status 与模型撰写的标签。
+
 ## Alternatives considered
 
 **把所有工具都声明为 `risk: 'high'`，这样绝不会误放行。** 否决：拒绝一切的上限等同于没有上限，而规划的目的是让部署级上限通过诚实的排序变得可用。
@@ -32,4 +36,8 @@ Status: implemented
 
 声明 `capabilityRisk: 'medium'` 的预设现在会放行这四个检查工具，并以既有的失败即关闭消息拒绝未声明工具；`low` 上限会拒绝 `write` 并点明其声明的风险。`packages/fs/tool-fs/tests/capability-ceiling.spec.ts` 针对真实注册表、真实预设服务与真实文件系统栈钉住这三种结果，只把 shell 与审批服务作为桩挂载；一旦移除某个声明它就会失败，这正是它成为回归测试而非复述的原因。
 
-其余已发布工具定义仍未声明任何元数据，在带上限的预设下仍会失败即关闭。各族的分类方式相同：读取为 `low` 加 `automatic`；工作区或机器变更为 `medium` 或更高，并用与其策略本来就采用的门禁相匹配的审批取值；`explicit` 保留给「自身确认即是门禁」的动作——安装器工具就是现成例子。
+其余已发布工具定义仍未声明任何元数据，在带上限的预设下仍会失败即关闭。各族的分类方式相同：读取为 `low` 加 `automatic`；工作区或机器变更为 `medium` 或更高，并用与其策略本来就采用的门禁相匹配的审批取值；`explicit` 保留给「自身确认即是门禁」的动作——安装器工具就是现成例子。尚未完成的是委派与进程控制面（`dsh-tool-subagent`、`dsh-tool-subagent-control`、`dsh-tool-ralph`）、终端与常驻命令工具（`dsh-tool-terminal`、`dsh-tool-bash-persistent`、`dsh-tool-pwsh-persistent`）、仓库检查工具（`dsh-tool-lsp`、`dsh-tool-cordis`、`dsh-tool-session-query`）、`dsh-tool-skill`、`dsh-schedule`，以及实验性的 `dsh-experimental-tool-agent-team`。
+
+常驻命令变体（`dsh-tool-bash-persistent`、`dsh-tool-pwsh-persistent`）保持未声明。这两个包是近乎镜像的文件，在两者中都声明该族元数据会把一段共享 token 推过 `pnpm run duplication` 的阈值：同一份声明在两个非常驻工具上不产生任何克隆，而在这一对上新增 13 处跨文件克隆——该数字通过逐侧撤回实测得出。声明它们应属于一次先为该对给出单一共享声明来源的改动，使该族的风险陈述只有一个归属处。
+
+`packages/shell/tool-pwsh/tests/capability-ceiling.spec.ts` 针对真实注册表、真实沙箱策略服务与真实预设服务钉住命令工具的上限行为：`high` 上限放行 `pwsh`，未声明天花板的预设照旧执行它，`medium` 上限以 `risk "high"` 拒绝它，未声明工具仍然失败即关闭。

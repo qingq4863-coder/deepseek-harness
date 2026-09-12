@@ -253,6 +253,13 @@ export function apply(ctx: Context, config: Config): void {
         text: `Updated todo list: ${value.counts.pending} pending, ${value.counts.inProgress} in progress, ${value.counts.completed} completed.`,
       }],
     },
+    capability: {
+      dataClass: 'workspace',
+      risk: 'low',
+      writeScope: ["this session's task list"],
+      reversible: false,
+      approval: 'automatic',
+    },
     execute(args, exec) {
       const todos = toTodoList(args.todos, allowParallel, requireCompleted)
       if (!exec.agent) {

@@ -265,6 +265,13 @@ describe('dsh-tool-todo', () => {
   it('presents the call with a stable title and the list as raw input', async () => {
     const ctx = await setup(true)
     const def = ctx.tools.get('todo_write')!
+    // The declared capability metadata, pinned where the tool is registered.
+    expect(def.capability).toMatchObject({
+      dataClass: 'workspace',
+      risk: 'low',
+      reversible: false,
+      approval: 'automatic',
+    })
     const todos = [{ content: 'a', status: 'pending' }]
     expect(def.presentCall?.({ todos })).toEqual({ card: 'generic', title: 'Update todo list', kind: 'other', rawInput: todos })
   })

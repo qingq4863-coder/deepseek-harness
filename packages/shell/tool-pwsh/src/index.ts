@@ -342,6 +342,18 @@ export function apply(ctx: Context, config: Config = {}): void {
           : renderPwshResult(value as RenderablePwshResult, escalationModes),
       }],
     },
+    // Deliberate mirror of dsh-tool-bash's command-execution capability (see the pwsh-tool-and-executor Agent Note).
+    /* jscpd:ignore-start */
+    capability: {
+      dataClass: 'sensitive',
+      risk: 'high',
+      readScope: ["machine content the caller's sandbox mode admits to the sandboxed PowerShell executor"],
+      writeScope: ["machine state the caller's sandbox mode admits to the sandboxed PowerShell executor"],
+      network: ["network destinations the caller's sandbox mode admits to the sandboxed PowerShell executor"],
+      reversible: false,
+      approval: 'scoped',
+    },
+    /* jscpd:ignore-end */
     /* jscpd:ignore-start -- the execute path mirrors dsh-tool-bash's by design (see the pwsh-tool-and-executor Agent Note). */
     async execute(args: PwshToolArgs, exec) {
       validatePwshArgs(args)

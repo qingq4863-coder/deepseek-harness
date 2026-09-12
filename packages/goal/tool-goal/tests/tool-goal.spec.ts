@@ -131,6 +131,26 @@ describe('goal tool registration and presentation', () => {
     const { ctx, fiber } = await harness({ blockedAfterConsecutiveRounds: 5 })
     expect(['create_goal', 'get_goal', 'update_goal'].map(name => ctx.tools.get(name)?.name))
       .toEqual(['create_goal', 'get_goal', 'update_goal'])
+    // The declared capability metadata: reads are reversible, goal mutations
+    // are not, because no tool removes or restores a goal.
+    expect(ctx.tools.get('get_goal')?.capability).toMatchObject({
+      dataClass: 'workspace',
+      risk: 'low',
+      reversible: true,
+      approval: 'automatic',
+    })
+    expect(ctx.tools.get('create_goal')?.capability).toMatchObject({
+      dataClass: 'workspace',
+      risk: 'low',
+      reversible: false,
+      approval: 'automatic',
+    })
+    expect(ctx.tools.get('update_goal')?.capability).toMatchObject({
+      dataClass: 'workspace',
+      risk: 'low',
+      reversible: false,
+      approval: 'automatic',
+    })
     for (const name of ['create_goal', 'get_goal', 'update_goal']) {
       expect(ctx.tools.executionMode({ signal: testToolSignal, callId: ToolCallId(name), name, arguments: {} }))
         .toEqual({ kind: 'exclusive' })

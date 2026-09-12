@@ -360,6 +360,13 @@ export function applyWebSearchTool(
     timeoutMs,
     // Provider reads do not mutate parent-agent state.
     isConcurrencySafe: () => true,
+    capability: {
+      dataClass: 'public',
+      risk: 'low',
+      network: ["the mounted search provider's endpoint"],
+      reversible: true,
+      approval: 'automatic',
+    },
     async execute(args, exec) {
       const queries = parseSearchArgs(args, maxQueries)
       const result = await runSearchQueries(ctx, queries, maxResults, exec.signal)

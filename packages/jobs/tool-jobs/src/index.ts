@@ -326,6 +326,13 @@ export function apply(ctx: Context, config: Config): void {
         return [{ type: 'text', text: `${body}${separator}${statusLine(value.job)}` }]
       },
     },
+    capability: {
+      dataClass: 'sensitive',
+      risk: 'low',
+      readScope: ['output of background jobs this session owns'],
+      reversible: true,
+      approval: 'automatic',
+    },
     async execute(args, exec) {
       const id = validateJobId(args.job_id)
       if (args.wait === true) {
@@ -350,6 +357,13 @@ export function apply(ctx: Context, config: Config): void {
           ? '(no background jobs)'
           : jobs.map(t => `${t.id} [${t.kind}] ${t.status} — ${t.label}`).join('\n'),
       }],
+    },
+    capability: {
+      dataClass: 'workspace',
+      risk: 'low',
+      readScope: ['background jobs this session owns'],
+      reversible: true,
+      approval: 'automatic',
     },
     execute(_args, exec) {
       const jobs = ctx.jobs.list(exec.agent)
@@ -385,6 +399,13 @@ export function apply(ctx: Context, config: Config): void {
           ? `job ${value.job.id} had already finished ${statusLine(value.job)}`
           : `requested cancellation of job ${value.job.id}`,
       }],
+    },
+    capability: {
+      dataClass: 'workspace',
+      risk: 'medium',
+      writeScope: ['processes the background jobs this session owns are running'],
+      reversible: false,
+      approval: 'automatic',
     },
     execute(args, exec) {
       const id = validateJobId(args.job_id)

@@ -571,6 +571,14 @@ describe('background execution through the job runtime', () => {
     // The registry-held definition agrees (schema and capability never disagree).
     const parameters = ctx.tools.get('bash')!.parameters as { properties: Record<string, unknown> }
     expect('run_in_background' in parameters.properties).toBe(false)
+    // The command-execution family's declared risk; the ceiling behavior that
+    // consumes it is pinned in dsh-tool-pwsh's capability-ceiling spec.
+    expect(ctx.tools.get('bash')?.capability).toMatchObject({
+      dataClass: 'sensitive',
+      risk: 'high',
+      reversible: false,
+      approval: 'scoped',
+    })
 
     // Schema omission is advertising; execution must also enforce the opt-out.
     const forced = await call(ctx, 'bash', { command: 'echo hi', description: 'test command', run_in_background: true })

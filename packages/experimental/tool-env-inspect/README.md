@@ -95,7 +95,7 @@ This section explains the design decisions behind the tool and points at the cod
 
 - **Read-only by default, mutating in one place.** Inspecting what is installed is the safe first step of the installer/environment-manager flow, and every tool except `pkg_install` and `pkg_uninstall` only reads. Those two run one fixed manager argv behind the tool registry's explicit approval gate; artifact download, provenance verification, and rollback stay out of scope until their own slices exist.
 - **In-process resolution, no subprocess.** Matching runs through `stat`/`access` against the caller's `PATH`, so the tool adds no execution surface and needs no approval gating beyond the tool call itself.
-- **Pure query, no session state.** The tool appends no session event and owns no projection, so the package publishes no `./invariant` companion: there is no durable state whose independent observations could diverge.
+- **Pure query, no session state.** The tool appends no session event and owns no projection, so no invariant companion is published: there is no durable state whose independent observations could diverge.
 
 ### Source map
 

@@ -196,6 +196,13 @@ export function apply(ctx: Context, config: Config): void {
     description: GET_DESCRIPTION,
     parameters: {},
     output: GOAL_OUTPUT,
+    capability: {
+      dataClass: 'workspace',
+      risk: 'low',
+      readScope: ["this session's goal state"],
+      reversible: true,
+      approval: 'automatic',
+    },
     execute(_args, exec) {
       const execution = goalToolExecution(ctx, exec)
       return Promise.resolve(goalValue(ctx.goals.get(execution.agent)))
@@ -218,6 +225,13 @@ export function apply(ctx: Context, config: Config): void {
       },
     },
     output: GOAL_OUTPUT,
+    capability: {
+      dataClass: 'workspace',
+      risk: 'low',
+      writeScope: ["this session's goal state"],
+      reversible: false,
+      approval: 'automatic',
+    },
     execute(args, exec) {
       const execution = goalToolExecution(ctx, exec)
       requireDirectHuman(ctx, execution)
@@ -253,6 +267,13 @@ export function apply(ctx: Context, config: Config): void {
       },
     },
     output: GOAL_OUTPUT,
+    capability: {
+      dataClass: 'workspace',
+      risk: 'low',
+      writeScope: ["this session's goal state"],
+      reversible: false,
+      approval: 'automatic',
+    },
     execute(args, exec) {
       const execution = goalToolExecution(ctx, exec)
       const ref = goalRef(args.goal_id, args.revision)

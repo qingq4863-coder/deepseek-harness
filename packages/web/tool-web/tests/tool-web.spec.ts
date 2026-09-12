@@ -888,6 +888,19 @@ describe('searchMaxQueries is plugin config', () => {
 describe('tool-call timeout budget is plugin config', () => {
   it('attaches the default 30s budget to web_fetch and web_search', async () => {
     const { fiber, ctx } = await mountTools()
+    // The declared capability metadata, pinned where the tools are registered.
+    expect(ctx.tools.get('web_fetch')?.capability).toMatchObject({
+      dataClass: 'public',
+      risk: 'low',
+      reversible: true,
+      approval: 'automatic',
+    })
+    expect(ctx.tools.get('web_search')?.capability).toMatchObject({
+      dataClass: 'public',
+      risk: 'low',
+      reversible: true,
+      approval: 'automatic',
+    })
     expect(ctx.tools.get('web_fetch')?.timeoutMs).toBe(30_000)
     expect(ctx.tools.get('web_search')?.timeoutMs).toBe(30_000)
     await fiber.dispose()

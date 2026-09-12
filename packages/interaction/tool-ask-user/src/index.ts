@@ -77,6 +77,12 @@ export function apply(ctx: Context): void {
       },
       render: (_args, value) => [{ type: 'text', text: JSON.stringify(value) }],
     },
+    capability: {
+      dataClass: 'workspace',
+      risk: 'low',
+      reversible: true,
+      approval: 'automatic',
+    },
     async execute(args, exec) {
       const result = await ctx.userQuestions.ask({
         questions: args.questions.map(question => ({

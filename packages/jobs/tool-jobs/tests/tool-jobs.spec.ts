@@ -171,6 +171,25 @@ describe('tool-jobs setup', () => {
     await ctx.plugin(ToolRuntime)
     await ctx.plugin(LocalJobRegistry)
     ToolTasks.apply(ctx, {})
+    // The declared capability metadata, pinned where the tools are registered.
+    expect(ctx.tools.get('job_output')?.capability).toMatchObject({
+      dataClass: 'sensitive',
+      risk: 'low',
+      reversible: true,
+      approval: 'automatic',
+    })
+    expect(ctx.tools.get('job_list')?.capability).toMatchObject({
+      dataClass: 'workspace',
+      risk: 'low',
+      reversible: true,
+      approval: 'automatic',
+    })
+    expect(ctx.tools.get('job_kill')?.capability).toMatchObject({
+      dataClass: 'workspace',
+      risk: 'medium',
+      reversible: false,
+      approval: 'automatic',
+    })
     expect(ctx.tools.get('job_output')).toBeDefined()
     expect(() => ctx.jobs.start(producer().spec)).not.toThrow()
   })

@@ -322,6 +322,13 @@ describe('ask_user_question tool', () => {
     await ctx.plugin(ToolRuntime)
     await ctx.plugin(UserQuestionService)
     const fiber = await ctx.plugin(toolAskUser)
+    // The declared capability metadata, pinned where the tool is registered.
+    expect(ctx.tools.get('ask_user_question')?.capability).toMatchObject({
+      dataClass: 'workspace',
+      risk: 'low',
+      reversible: true,
+      approval: 'automatic',
+    })
     expect(ctx.tools.get('ask_user_question')).toBeDefined()
 
     await fiber.dispose()

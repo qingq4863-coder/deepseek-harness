@@ -494,6 +494,13 @@ export function applyWebFetchTool(ctx: Context, timeoutMs: number, maxOutputChar
     timeoutMs,
     // Provider reads do not mutate parent-agent state.
     isConcurrencySafe: () => true,
+    capability: {
+      dataClass: 'public',
+      risk: 'low',
+      network: ['HTTP(S) destinations the mounted fetch provider admits'],
+      reversible: true,
+      approval: 'automatic',
+    },
     async execute(args, exec) {
       const input = parseFetchArgs(args)
       const result = await ctx.web.fetch(

@@ -326,6 +326,18 @@ export function apply(ctx: Context, config: Config = {}): void {
           : renderResult(value as { kind: 'foreground' } & ShellRunResult, escalationModes),
       }],
     },
+    // Deliberate mirror of dsh-tool-pwsh's command-execution capability (see the pwsh-tool-and-executor Agent Note).
+    /* jscpd:ignore-start */
+    capability: {
+      dataClass: 'sensitive',
+      risk: 'high',
+      readScope: ["machine content the caller's sandbox mode admits to the sandboxed Bash executor"],
+      writeScope: ["machine state the caller's sandbox mode admits to the sandboxed Bash executor"],
+      network: ["network destinations the caller's sandbox mode admits to the sandboxed Bash executor"],
+      reversible: false,
+      approval: 'scoped',
+    },
+    /* jscpd:ignore-end */
     async execute(args: BashToolArgs, exec) {
       validateBashArgs(args)
       // Description is display metadata; workdir defaults to the caller's session.
