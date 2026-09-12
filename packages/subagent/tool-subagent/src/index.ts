@@ -461,6 +461,13 @@ export function apply(ctx: Context, config: Config): void {
         // Children never mutate the parent session; the one parent-owned write
         // (tasks.start) is a synchronous commutative insertion.
         isConcurrencySafe: () => true,
+        capability: {
+          dataClass: 'workspace',
+          risk: 'low',
+          writeScope: ['work the delegated child performs with the tool subset it inherits'],
+          reversible: false,
+          approval: 'automatic',
+        },
         async execute(args, exec) {
           const parent = exec.agent
           if (!parent) {

@@ -432,6 +432,13 @@ export function apply(ctx: Context, config: Config): void {
         text: renderResult(value.result as unknown as RalphRunResult, resolved.maxResultChars),
       }],
     },
+    capability: {
+      dataClass: 'workspace',
+      risk: 'low',
+      writeScope: ['work the fresh rounds\' delegated agents perform within the subset they inherit'],
+      reversible: false,
+      approval: 'automatic',
+    },
     async execute(args, exec) {
       const parent = exec.agent
       if (parent === undefined) {

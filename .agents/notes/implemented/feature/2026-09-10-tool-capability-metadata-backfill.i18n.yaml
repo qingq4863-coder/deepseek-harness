@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-09-10-tool-capability-metadata-backfill.md
-2026-09-10-tool-capability-metadata-backfill.md: 039cfc6252165babb75b7dbefef7c5b0d733bb16
-2026-09-10-tool-capability-metadata-backfill.zh.md: 1b227544619ecb97acaae593a27547e647a7314f
+2026-09-10-tool-capability-metadata-backfill.md: a812ca95e51ce2b998ea0f89942c1fc1c19290eb
+2026-09-10-tool-capability-metadata-backfill.zh.md: a3857ce92afee1d5edc3eb0612889f82a9cb4d31

@@ -57,6 +57,13 @@ export function apply(ctx: Context): void {
         text: `message delivered to agent ${args.agent_id}`,
       }],
     },
+    capability: {
+      dataClass: 'workspace',
+      risk: 'low',
+      writeScope: ['direct continuable children, and its own direct parent for a resident child'],
+      reversible: false,
+      approval: 'automatic',
+    },
     async execute(args, exec) {
       const sender = exec.agent
       if (!sender) {
@@ -101,6 +108,13 @@ export function apply(ctx: Context): void {
         type: 'text',
         text: `interrupt requested for agent ${args.agent_id}`,
       }],
+    },
+    capability: {
+      dataClass: 'workspace',
+      risk: 'medium',
+      writeScope: ['in-flight work of the agents the caller may interrupt'],
+      reversible: false,
+      approval: 'automatic',
     },
     execute(args, exec) {
       const caller = exec.agent

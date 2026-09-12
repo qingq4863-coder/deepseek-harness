@@ -124,6 +124,13 @@ export function apply(ctx: Context, config: Config = {}): void {
       },
       render: (_args, value) => [{ type: 'text', text: renderSkillContent(value) }],
     },
+    capability: {
+      dataClass: 'workspace',
+      risk: 'low',
+      readScope: ['skills the mounted skill provider admits for this session'],
+      reversible: true,
+      approval: 'automatic',
+    },
     async execute(args, exec) {
       if (!isSkillName(args.name)) {
         throw new Error(`invalid skill name "${args.name}"`)

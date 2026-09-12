@@ -106,6 +106,13 @@ export function registerListSubagentModels(ctx: Context, policy: ModelSelectionP
       schema: { type: 'string' },
       render: (_args, result) => [{ type: 'text', text: result }],
     },
+    capability: {
+      dataClass: 'workspace',
+      risk: 'low',
+      readScope: ['routes and efforts the mounted subagent provider advertises'],
+      reversible: true,
+      approval: 'automatic',
+    },
     execute(args, exec) {
       return listSubagentModels(ctx, policy, args, exec.signal)
     },

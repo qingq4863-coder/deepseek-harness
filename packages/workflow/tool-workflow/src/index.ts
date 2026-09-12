@@ -268,6 +268,13 @@ export function apply(ctx: Context, config: Config): void {
         text: renderResult(args.meta.name, value.agentsStarted, value.result, maxResultChars),
       }],
     },
+    capability: {
+      dataClass: 'workspace',
+      risk: 'low',
+      writeScope: ['work the script\'s delegated agents perform within the subset they inherit'],
+      reversible: false,
+      approval: 'automatic',
+    },
     async execute(args, exec) {
       const parent = exec.agent
       if (!parent) {

@@ -284,6 +284,13 @@ export class PlanModeController extends Service {
         },
         render: () => [{ type: 'text', text: 'Plan approved — plan mode exited; carry out the plan starting with your next step.' }],
       },
+      capability: {
+        dataClass: 'workspace',
+        risk: 'low',
+        writeScope: ["this session's plan mode"],
+        reversible: false,
+        approval: 'automatic',
+      },
       execute: async (args, exec) => {
         const agent = exec.agent
         if (agent === undefined) throw new Error(`${EXIT_PLAN_MODE} requires a calling agent (no session to switch)`)

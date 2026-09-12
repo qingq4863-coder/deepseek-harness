@@ -162,6 +162,13 @@ export function apply(ctx: Context): void {
         }]
       },
     },
+    capability: {
+      dataClass: 'workspace',
+      risk: 'low',
+      readScope: ['the caller\'s direct children and, for a resident child, its direct parent'],
+      reversible: true,
+      approval: 'automatic',
+    },
     async execute(args, exec) {
       const parent = exec.agent
       if (!parent) {
