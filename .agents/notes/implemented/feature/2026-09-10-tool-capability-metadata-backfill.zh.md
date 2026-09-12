@@ -24,6 +24,8 @@ Status: implemented
 
 委派与编排类工具声明为 `low`，因为它们的触达并不属于自己。`subagent`、`workflow` 与 `ralph` 造成的子级工作运行在**父级的预设**上——`subagent-in-process-driver` 证明了这一继承——因此子级的工具面对同一道天花板，委派工具既无法超越调用方的上限，也不需要高于它的档位；它们的作用域点明子级执行的内容，且不可逆，因为一次运行无法被取消运行。`send_message`、`list_subagent_models`、`list_agents` 与 `skill` 同样以 `low` 读取或引导，其中 `skill` 可逆，因为它只加载技能提供方所放行的技能。`interrupt_agent` 是该族唯一的 `medium`，与 `job_kill` 一致：两者都不可逆地取消进行中的工作，因此天花板低于 `medium` 的预设无法取消自己的工作——这是把 shipped 天花板声明为 `high` 的一个理由。`exit_plan_mode`（`dsh-plan-mode`）同样是 `low`，因为它请人审阅计划并退出计划模式，只动会话状态、不动机器状态。最后这一条也是静态查全性检查的教训：该检查的第一版只看名字以 `dsh-tool` 开头的行，于是漏掉了 `dsh-base` 从 `dsh-plan-mode` 挂载的那一个工具。
 
+`dsh-base` 为它发布的每一个预设声明天花板——`read-only`、`workspace-write`、`danger-full-access` 均为 `capabilityRisk: 'high'`——这正是让该契约在 shipped 组合中成为事实的原因：未声明的工具在那里会被拒绝，而将来的 `prohibited` 工具在任何地方都会被拒绝。三者都取 `high` 是有意的、不是占位：守卫按工具读取声明的风险、绝不按调用，因此低于 `high` 会连 shell 工具一并移除，而 `read-only` 取 `low` 还会额外拒绝只读的 shell 用法。
+
 ## Alternatives considered
 
 **把所有工具都声明为 `risk: 'high'`，这样绝不会误放行。** 否决：拒绝一切的上限等同于没有上限，而规划的目的是让部署级上限通过诚实的排序变得可用。
@@ -42,4 +44,4 @@ Status: implemented
 
 常驻命令变体（`dsh-tool-bash-persistent`、`dsh-tool-pwsh-persistent`）保持未声明。这两个包是近乎镜像的文件，在两者中都声明该族元数据会把一段共享 token 推过 `pnpm run duplication` 的阈值：同一份声明在两个非常驻工具上不产生任何克隆，而在这一对上新增 13 处跨文件克隆——该数字通过逐侧撤回实测得出。声明它们应属于一次先为该对给出单一共享声明来源的改动，使该族的风险陈述只有一个归属处。
 
-`packages/shell/tool-pwsh/tests/capability-ceiling.spec.ts` 针对真实注册表、真实沙箱策略服务与真实预设服务钉住命令工具的上限行为：`high` 上限放行 `pwsh`，未声明天花板的预设照旧执行它，`medium` 上限以 `risk "high"` 拒绝它，未声明工具仍然失败即关闭。
+`packages/shell/tool-pwsh/tests/capability-ceiling.spec.ts` 针对真实注册表、真实沙箱策略服务与真实预设服务钉住命令工具的上限行为：`high` 上限放行 `pwsh`，未声明天花板的预设照旧执行它，`medium` 上限以 `risk "high"` 拒绝它，未声明工具仍然失败即关闭。`packages/interaction/permission-presets/tests/shipped-capability-ceiling.spec.ts` 直接读取 `packages/bundle/base/cordis.patch.yml` 而非它的副本，钉住 shipped 声明、未声明工具被失败即关闭而同层声明工具被放行，以及 `dsh-base` 每一行可达的工具包都为每个注册工具声明了元数据——并对语料收窄设了护栏，只放行 `dsh-tools`，因为它的 `defineTool` 调用属于注册表自带夹具。

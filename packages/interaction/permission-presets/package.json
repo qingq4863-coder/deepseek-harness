@@ -58,6 +58,8 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@deepseek-ai/dsh-agent": "workspace:^",
+    "@deepseek-ai/dsh-llm": "workspace:^",
     "@deepseek-ai/dsh-shell": "workspace:^",
     "@deepseek-ai/dsh-commands": "workspace:^",
     "@deepseek-ai/dsh-invariants": "workspace:^",
@@ -68,6 +70,9 @@
     "@deepseek-ai/dsh-settings": "workspace:^",
     "@deepseek-ai/dsh-tools": "workspace:^",
     "@deepseek-ai/dsh-user-approval": "workspace:^",
-    "@deepseek-ai/cordis": "workspace:^"
+    "@deepseek-ai/cordis": "workspace:^",
+    "@deepseek-ai/dsh-system-prompt": "workspace:^",
+    "@types/js-yaml": "^4.0.9",
+    "js-yaml": "^4.2.0"
   }
 }

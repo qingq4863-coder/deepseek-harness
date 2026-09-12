@@ -236,15 +236,24 @@
       name: '@deepseek-ai/dsh-permission-presets'
       config:
         presets:
+          # Every shipped preset states its capability ceiling, which is what
+          # makes the fail-closed contract real: a tool that declares no
+          # metadata is refused in every shipped composition, and a future
+          # `prohibited` tool is refused here. `high` is deliberate rather than
+          # a placeholder — anything below it would also remove the shell
+          # tools, and risk is declared per tool, never per call.
           read-only:
             sandbox: read-only
             approval: ask
+            capabilityRisk: high
           workspace-write:
             sandbox: workspace-write
             approval: ask
+            capabilityRisk: high
           danger-full-access:
             sandbox: danger-full-access
             approval: never
+            capabilityRisk: high
 
     - id: shell-env
       name: '@deepseek-ai/dsh-shell-env'
