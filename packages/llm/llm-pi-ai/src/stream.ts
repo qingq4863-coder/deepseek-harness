@@ -56,6 +56,11 @@ function classifyPiAiError(message: string): string {
   // finish_reason`). The connection dropped mid-response, so this is a transport
   // truncation, not a model-level error.
   if (/stream ended (?:before|without)\b/i.test(message)) return 'TRANSPORT'
+  // A mid-stream SSE parse failure: the OpenAI SDK surfaces JSON.parse throws
+  // verbatim when a proxy emits event frames without the required blank-line
+  // separators (events coalesce into one `data` blob until the next `: ping`).
+  // The wire delivered malformed framing, so resending is the recovery path.
+  if (/Unexpected (?:non-whitespace character after JSON|end of JSON input|token .*is not valid JSON)/i.test(message)) return 'TRANSPORT'
   if (/\b(?:network|connection|socket|fetch)\b|\bECONN[A-Z]+\b/i.test(message)
     || /\b(?:other side closed|HTTP2 request did not get a response|WebSocket closed unexpectedly)\b/i.test(message)
     // undici renders a mid-stream socket drop as a bare `terminated` (its

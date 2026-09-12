@@ -849,6 +849,12 @@ describe('mapStopReason / mapUsage', () => {
     'OpenAI Responses stream ended before a terminal response event',
     'openrouter stream ended without a terminal event',
     'Stream ended without finish_reason',
+    // The OpenAI SDK surfaces JSON.parse throws verbatim when a proxy emits
+    // SSE event frames without blank-line separators; the wire framing broke,
+    // so resending is the recovery path.
+    'Unexpected non-whitespace character after JSON at position 194 (line 2 column 1)',
+    'Unexpected end of JSON input',
+    "Unexpected token 'd', \"{bad}\" is not valid JSON",
   ])('maps pi-ai transport wording %j', (errorMessage) => {
     expect(mapStopReason(assistant({ stopReason: 'error', errorMessage })))
       .toMatchObject({ kind: 'error', failure: { code: 'TRANSPORT' } })
